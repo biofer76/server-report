@@ -1,5 +1,6 @@
 """CPU metrics collector."""
 
+import os
 import subprocess
 
 from resources.base import BaseCollector, Result
@@ -29,10 +30,11 @@ class CpuCollector(BaseCollector):
     def collect(self) -> Result:
         """Collect CPU metrics and apply load threshold alert."""
         try:
+            own_pid = str(os.getpid())
             cores = self._get_cores()
             load_1m, load_5m, load_15m = self._get_load_avg()
-            top_cpu = self._get_top_processes("-%cpu")
-            top_mem = self._get_top_processes("-%mem")
+            top_cpu = self._get_top_processes("-%cpu", own_pid)
+            top_mem = self._get_top_processes("-%mem", own_pid)
 
             metrics = {
                 "cores": cores,
@@ -70,22 +72,27 @@ class CpuCollector(BaseCollector):
             return float(parts[0]), float(parts[1]), float(parts[2])
         return 0.0, 0.0, 0.0
 
-    def _get_top_processes(self, sort_flag: str) -> list[dict]:
+    def _get_top_processes(self, sort_flag: str, own_pid: str) -> list[dict]:
         n = self.config.get("top_processes_n", 5)
-        out = _run(["ps", "aux", f"--sort={sort_flag}"])
+        out = _run(["ps", "-eo", "user,pid,ppid,%cpu,%mem,cmd", f"--sort={sort_flag}"])
         lines = out.splitlines()
         if len(lines) < 2:
             return []
         rows = []
-        for line in lines[1 : n + 1]:
-            parts = line.split(None, 10)
-            if len(parts) < 11:
+        for line in lines[1:]:
+            parts = line.split(None, 5)
+            if len(parts) < 6:
+                continue
+            pid, ppid = parts[1], parts[2]
+            if pid == own_pid or ppid == own_pid:
                 continue
             rows.append({
                 "user": parts[0],
-                "pid": parts[1],
-                "cpu": parts[2],
-                "mem": parts[3],
-                "cmd": parts[10],
+                "pid": pid,
+                "cpu": parts[3],
+                "mem": parts[4],
+                "cmd": parts[5],
             })
+            if len(rows) == n:
+                break
         return rows
