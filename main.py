@@ -10,7 +10,7 @@ from pathlib import Path
 
 # Load .env as the very first operation before any other import reads the env.
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(override=True)
 
 import loader
 import mailer
