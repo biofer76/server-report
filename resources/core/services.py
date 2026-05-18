@@ -1,5 +1,6 @@
 """Systemd services collector."""
 
+import shutil
 import subprocess
 
 from resources.base import BaseCollector, Result
@@ -24,7 +25,6 @@ class ServicesCollector(BaseCollector):
 
     def is_available(self) -> bool:
         """Available when systemctl is present."""
-        import shutil
         return shutil.which("systemctl") is not None
 
     def collect(self) -> Result:
@@ -32,11 +32,13 @@ class ServicesCollector(BaseCollector):
         try:
             failed = self._get_failed_services()
             watched = self._check_watched_services()
+            available_updates = self._get_available_updates()
 
             metrics = {
                 "failed_count": len(failed),
                 "failed_services": failed,
                 "watched": watched,
+                "available_updates": available_updates,
             }
 
             alerts = []
@@ -72,3 +74,27 @@ class ServicesCollector(BaseCollector):
             out = _run(["systemctl", "is-active", svc])
             result[svc] = out or "unknown"
         return result
+
+    def _get_available_updates(self) -> int:
+        """Return the number of available updates, or -1 if detection failed."""
+        pkg_manager = self.config.get("_system", {}).get("package_manager", "unknown")
+
+        if pkg_manager == "apt":
+            out = _run(["apt", "list", "--upgradable"])
+            return sum(1 for l in out.splitlines() if "/" in l)
+
+        elif pkg_manager == "dnf":
+            # dnf check-update exits 100 when updates are available, 0 when none, 1 on error.
+            # The _run() helper discards the exit code, so call subprocess directly.
+            result = subprocess.run(
+                ["dnf", "check-update", "--quiet"],
+                capture_output=True, text=True, timeout=30,
+            )
+            if result.returncode in (0, 100):
+                return len([
+                    l for l in result.stdout.splitlines()
+                    if l.strip() and not l.startswith("Last metadata")
+                ])
+            return -1
+
+        return -1
