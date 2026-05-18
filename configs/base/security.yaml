@@ -1,0 +1,2 @@
+recent_logins_count:   5   # number of recent logins to include in the report
+failed_ssh_threshold: 10   # alert when failed SSH attempts in 24h exceed this value

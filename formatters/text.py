@@ -103,6 +103,10 @@ class TextFormatter(BaseFormatter):
         elif result.name == "Network":
             for line in m.get("tcp_summary", []):
                 lines.append(f"  {line}")
+
+        elif result.name == "Security":
+            failed = m.get("failed_ssh_attempts", 0)
+            lines.append(f"  Failed SSH attempts (24h): {failed}")
             logins = m.get("recent_logins", [])
             if logins:
                 lines.append("  Recent logins:")

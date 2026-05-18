@@ -1,4 +1,4 @@
-"""Network and login activity collector."""
+"""Network metrics collector."""
 
 import subprocess
 
@@ -15,7 +15,7 @@ def _run(cmd: list[str], timeout: int = 10) -> str:
 
 
 class NetworkCollector(BaseCollector):
-    """Collects TCP connection summary and recent login history."""
+    """Collects TCP/UDP connection stats."""
 
     @property
     def name(self) -> str:
@@ -27,16 +27,12 @@ class NetworkCollector(BaseCollector):
         return True
 
     def collect(self) -> Result:
-        """Collect network summary and login history."""
+        """Collect TCP connection summary."""
         try:
             metrics: dict = {}
 
             if self.config.get("include_summary", True):
                 metrics["tcp_summary"] = self._get_tcp_summary()
-
-            if self.config.get("include_logins", True):
-                n = self.config.get("recent_logins_n", 5)
-                metrics["recent_logins"] = self._get_recent_logins(n)
 
             return Result(name=self.name, status="ok", metrics=metrics, alerts=[])
         except Exception as exc:
@@ -48,7 +44,3 @@ class NetworkCollector(BaseCollector):
             line for line in out.splitlines()
             if "estab" in line
         ][:5]
-
-    def _get_recent_logins(self, n: int) -> list[str]:
-        out = _run(["last", "-n", str(n), "--time-format", "iso"])
-        return out.splitlines()[:n]
