@@ -63,7 +63,10 @@ class SecurityCollector(BaseCollector):
 
     def _get_recent_logins(self, n: int) -> list[str]:
         out = _run(["last", "-n", str(n), "--time-format", "iso"])
-        return out.splitlines()[:n]
+        return [
+            line for line in out.splitlines()
+            if line.strip() and not line.startswith("wtmp")
+        ][:n]
 
     def _get_failed_ssh_attempts(self) -> int:
         distro = self.config.get("_system", {}).get("distro", "")
