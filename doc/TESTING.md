@@ -140,6 +140,8 @@ Expected on Ubuntu: `{'distro': 'ubuntu', 'distro_version': '24.04', 'distro_pre
 
 Expected on Debian: `{'distro': 'debian', 'distro_version': '12', 'distro_pretty': 'Debian GNU/Linux 12 (bookworm)', 'package_manager': 'apt'}`
 
+Expected on Rocky Linux: `{'distro': 'rocky', 'distro_version': '9', 'distro_pretty': 'Rocky Linux 9.x (Blue Onyx)', 'package_manager': 'dnf'}`
+
 ### CPU
 
 ```bash
@@ -233,7 +235,8 @@ EOF
 
 **Watch for:**
 - `available_updates` must be an integer, not `-1` (which means unknown package manager)
-- `_system.package_manager` must be `apt` on Ubuntu/Debian
+- `_system.package_manager` must be `apt` on Ubuntu/Debian, `dnf` on Rocky Linux
+- On Rocky Linux, `dnf check-update` exits with code 100 when updates are available - this is expected and handled correctly
 
 ### Plugins (optional, install first)
 
@@ -359,19 +362,52 @@ python3 main.py --to your@email.com --format json
 To verify multi-distro support, create a second VM with Rocky Linux or AlmaLinux.
 
 ```bash
+# Use e2-medium for Rocky Linux - e2-micro is too slow for dnf provisioning
 gcloud compute instances create server-report-test-rhel \
   --zone=europe-west8-a \
-  --machine-type=e2-micro \
+  --machine-type=e2-medium \
   --image-family=rocky-linux-9 \
   --image-project=rocky-linux-cloud \
   --boot-disk-size=10GB
+
+gcloud compute ssh server-report-test-rhel --zone=europe-west8-a
+```
+
+**Rocky Linux provisioning differs from Debian/Ubuntu:**
+
+```bash
+# Rocky Linux 9 ships with Python 3.9 which is below the 3.10+ requirement.
+# Install Python 3.11 explicitly.
+sudo dnf install -y python3.11 python3.11-pip git
+
+# Clone the repository
+git clone https://github.com/biofer76/server-report /opt/server-report
+cd /opt/server-report
+
+# Create and activate the virtualenv using python3.11
+python3.11 -m venv /opt/server-report/.venv
+source /opt/server-report/.venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Create .env
+cat > /opt/server-report/.env << 'EOF'
+MAILGUN_API_KEY=key-test-placeholder
+SERVER_ID=server-report-test
+EOF
+
+# Copy example config
+cp -r configs/example configs/server-report-test
 ```
 
 Run the same smoke test and collector checklist. Pay attention to:
 
 - `_system.package_manager` must be `dnf`
+- `_system` block shows `distro: rocky` and `distro_version: 9`
 - `services` collector must use `dnf check-update` for available updates
 - `available_updates` must be an integer, not `-1`
+- `dnf check-update` exits with code 100 when updates are available (this is normal)
 
 ---
 
@@ -387,6 +423,8 @@ If you created the Red Hat VM:
 
 ```bash
 gcloud compute instances delete server-report-test-rhel --zone=europe-west8-a --quiet
+# or if named differently:
+gcloud compute instances delete server-report-test-rhel2 --zone=europe-west8-a --quiet
 ```
 
 ---
@@ -397,8 +435,10 @@ Run through this list before tagging a new version.
 
 - [ ] `python3 main.py --dry-run` completes without errors on Ubuntu
 - [ ] `python3 main.py --dry-run` completes without errors on Debian
-- [ ] `_system` block is correct on both distros
-- [ ] `available_updates` is an integer on both distros (not `-1`)
+- [ ] `python3 main.py --dry-run` completes without errors on Rocky Linux
+- [ ] `_system` block is correct on all three distros
+- [ ] `available_updates` is an integer on all three distros (not `-1`)
+- [ ] `available_updates` uses `apt` on Ubuntu/Debian and `dnf` on Rocky Linux
 - [ ] All four formatters produce valid output
 - [ ] CSV has fixed columns, no metric detail
 - [ ] JSON is parseable with `json.loads()`

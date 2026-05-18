@@ -2,7 +2,7 @@
 
 ## Overview
 
-`server-report` is a lightweight, extensible server monitoring system that collects system metrics and delivers periodic status reports via email. It is designed to be deployed on Linux VPS servers using Git and Ansible, and to adapt to different server configurations through a plugin system.
+`server-report` is a lightweight, extensible server monitoring system that collects system metrics and delivers periodic status reports via email. It is designed to be deployed on Linux VPS servers using Git, and to adapt to different server configurations through a plugin system. The deployment tool is not prescribed: an official Ansible integration is available as a separate repository (`server-report-ansible`).
 
 The system is intentionally simple in scope: it runs on a schedule, collects data, formats it, and sends it. There is no real-time alerting, no persistent storage, and no dashboard. This simplicity is a deliberate design choice that makes the system easy to install, maintain, and reason about.
 
@@ -13,7 +13,7 @@ The system is intentionally simple in scope: it runs on a schedule, collects dat
 - Provide a unified monitoring solution adoptable as a standard across multiple client servers
 - Allow easy extension through plugins without modifying the core system
 - Support multiple recipients with individual format preferences
-- Be deployable in minutes on a new server via Ansible
+- Be deployable in minutes on a new server with any deployment tool
 - Remain stateless: each execution is independent, no history is stored on the server
 
 ---
@@ -33,19 +33,18 @@ The following are explicitly out of scope:
 
 ## Stack
 
-- **Python 3.10+** running directly on the host
+- **Python 3.10+** running directly on the host (Python 3.11+ required on Rocky Linux / RHEL, where the system Python is 3.9)
 - **PyYAML** for config file parsing
 - **python-dotenv** for `.env` file loading
 - **Git** for distribution and updates
-- **Ansible** for provisioning, deploy, and updates
-- **Cron** on the server for scheduling, written by Ansible reading from config
-- **Ansible Vault** for secrets management
+- **Cron** on the server for scheduling
+- Any deployment tool of choice (Ansible, Chef, Puppet, bash scripts, or manual setup)
 
 ---
 
 ## Dependencies
 
-All external dependencies are declared in `requirements.txt` with pinned versions. Ansible installs them during the deploy using the pinned versions to ensure consistency across servers.
+All external dependencies are declared in `requirements.txt` with pinned versions. Install them with `/opt/server-report/.venv/bin/pip install -r requirements.txt` during the deploy.
 
 ```
 PyYAML==6.0.2
@@ -56,25 +55,30 @@ python-dotenv==1.0.1
 
 ## Versioning
 
-The repository contains a `VERSION` file with the current version string, for example `1.0.0`. Every report includes the version in its header so the recipient always knows which version generated it. Ansible logs the deployed version during install and update operations.
+The repository contains a `VERSION` file with the current version string, for example `1.0.0`. Every report includes the version in its header so the recipient always knows which version generated it. The operator or deployment tool should log the deployed version during install and update operations.
 
 ---
 
 ## Deployment Model
 
-Each monitored server runs the system directly on the host. The repository is cloned into a fixed path, for example `/opt/server-report`. Ansible manages the full lifecycle.
+Each monitored server runs the system directly on the host. The repository is cloned into a fixed path, for example `/opt/server-report`. The deployment tool manages the full lifecycle.
 
 ### Installing on a new server
 
 1. Verify Python 3.10+ is present, install if missing
-2. Install `python3.12-venv` if missing: `sudo apt install python3.12-venv`
-3. Clone the repository to `/opt/server-report`
-4. Create the virtualenv: `python3 -m venv /opt/server-report/.venv`
-5. Install dependencies: `/opt/server-report/.venv/bin/pip install -r requirements.txt`
-6. Set the server hostname via Ansible to match the folder name under `configs/`
-7. Write the `.env` file with server-specific secrets, generated from Ansible Vault
-8. Read `cron_schedule` from the server's `general.yaml` and write the cron entry
-9. Run `/opt/server-report/.venv/bin/python main.py --dry-run` as a smoke test
+   - Debian/Ubuntu: already available; install venv with `sudo apt install python3.12-venv`
+   - Rocky Linux / RHEL: system Python is 3.9, install 3.11 with `sudo dnf install python3.11`
+2. Clone the repository to `/opt/server-report`
+3. Create the virtualenv:
+   - Debian/Ubuntu: `python3 -m venv /opt/server-report/.venv`
+   - Rocky Linux / RHEL: `python3.11 -m venv /opt/server-report/.venv`
+4. Install dependencies: `/opt/server-report/.venv/bin/pip install -r requirements.txt`
+5. Set the server hostname to match the folder name under `configs/`
+6. Write the `.env` file with server-specific secrets
+7. Create `configs/shared/` with values common to all servers (Mailgun domain, recipients)
+8. Create `configs/<hostname>/` with any server-specific overrides
+9. Write the cron entry reading `cron_schedule` from the server's config
+10. Run `/opt/server-report/.venv/bin/python main.py --dry-run` as a smoke test
 
 ### Updating an existing server
 
@@ -82,7 +86,7 @@ Each monitored server runs the system directly on the host. The repository is cl
 2. `/opt/server-report/.venv/bin/pip install -r requirements.txt` to pick up any new or updated dependencies
 3. Restart cron if the schedule has changed
 
-Both operations are Ansible playbooks: `ansible/install.yml` and `ansible/update.yml`.
+An official Ansible integration that automates both operations is available as a separate repository: `server-report-ansible`.
 
 ---
 
@@ -124,29 +128,31 @@ server-report/
 │   │   ├── restic.yaml
 │   │   ├── docker.yaml
 │   │   └── nginx.yaml
+│   ├── shared/              # values common to all servers, not versioned, managed by the operator
+│   │   └── general.yaml     # mailgun domain, api url, default recipients
 │   ├── vps-prod/            # overrides for vps-prod (must match server hostname)
-│   │   ├── general.yaml     # only keys that differ from base
+│   │   ├── general.yaml     # only keys that differ from base or shared
 │   │   └── restic.yaml
 │   └── vps-staging/
 │       └── general.yaml
-└── ansible/
-    ├── install.yml
-    └── update.yml
 ```
+
+> Ansible playbooks for automated deployment are maintained in the separate `server-report-ansible` repository.
 
 ### Responsibilities
 
-| Component             | Responsibility                                                                            |
-| --------------------- | ----------------------------------------------------------------------------------------- |
-| `main.py`             | Parse CLI arguments, load `.env`, orchestrate the full execution flow                     |
-| `loader.py`           | Identify server, merge config, discover collectors, pass config to each, enforce timeouts |
-| `mailer.py`           | Receive formatted output per recipient and send via Mailgun API                           |
-| `formatters/`         | Transform the list of Result objects into a specific output format                        |
-| `resources/base.py`   | Define the collector interface all resources must implement                               |
-| `resources/core/`     | Standard metrics always present on any Linux server                                       |
-| `resources/plugins/`  | Optional metrics depending on what is installed on the server                             |
-| `configs/base/`       | Default values shared across all servers, one YAML file per resource                      |
-| `configs/<hostname>/` | Per-server overrides, only files and keys that differ from base                           |
+| Component             | Responsibility                                                                                                          |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `main.py`             | Parse CLI arguments, load `.env`, orchestrate the full execution flow                                                   |
+| `loader.py`           | Identify server, merge config, discover collectors, pass config to each, enforce timeouts                               |
+| `mailer.py`           | Receive formatted output per recipient and send via Mailgun API                                                         |
+| `formatters/`         | Transform the list of Result objects into a specific output format                                                      |
+| `resources/base.py`   | Define the collector interface all resources must implement                                                             |
+| `resources/core/`     | Standard metrics always present on any Linux server                                                                     |
+| `resources/plugins/`  | Optional metrics depending on what is installed on the server                                                           |
+| `configs/base/`       | Default values shared across all servers, one YAML file per resource, versioned in Git                                  |
+| `configs/shared/`     | Values common to all servers that differ from base (Mailgun domain, recipients), not versioned, managed by the operator |
+| `configs/<hostname>/` | Per-server overrides, only files and keys that differ from base                                                         |
 
 ---
 
@@ -161,32 +167,44 @@ import os, socket
 server_id = os.environ.get("SERVER_ID") or socket.gethostname()
 ```
 
-By default it reads the system hostname, which Ansible sets at provisioning time to match the folder name under `configs/`. The `SERVER_ID` environment variable can override this in edge cases, for example when the hostname cannot be changed or when running the system manually on a different machine.
+By default it reads the system hostname, which must be set to match the folder name under `configs/` at provisioning time. The `SERVER_ID` environment variable can override this in edge cases, for example when the hostname cannot be changed or when running the system manually on a different machine.
 
-The hostname set by Ansible in the inventory must match exactly the folder name under `configs/`. If the names diverge, the system falls back to `configs/base/` without warning. This is a known operational risk, mitigated by the `--dry-run` smoke test after every deploy.
+The hostname must match exactly the folder name under `configs/`. If the names diverge, the system falls back to `configs/base/` without warning. This is a known operational risk, mitigated by the `--dry-run` smoke test after every deploy.
 
 ### Config merge
 
-`loader.py` performs the merge in two steps:
+`loader.py` performs the merge in three steps:
 
 1. Load all YAML files from `configs/base/` into a single dict, keyed by resource name
-2. Load all YAML files from `configs/<server_id>/` and merge key by key into the base dict
+2. Load all YAML files from `configs/shared/` and merge key by key, overriding base values
+3. Load all YAML files from `configs/<server_id>/` and merge key by key, overriding shared values
 
-**Merge rule: lists are always replaced in full, never appended.** This is a general rule of the system with no exceptions. A server override file only needs to contain the keys that differ from base. All other keys retain their base defaults.
+**Merge rule: lists are always replaced in full, never appended.** This is a general rule of the system with no exceptions. A server override file only needs to contain the keys that differ from base or shared. All other keys retain their defaults.
 
 ```python
 import yaml
 
 def load_config(server_id: str) -> dict:
     config = {}
-    for path in sorted(BASE_DIR.glob("*.yaml")):
-        config[path.stem] = yaml.safe_load(path.read_text())
 
+    # Step 1: base defaults (versioned in Git)
+    for path in sorted((CONFIGS_DIR / "base").glob("*.yaml")):
+        config[path.stem] = yaml.safe_load(path.read_text()) or {}
+
+    # Step 2: shared values common to all servers (not versioned, managed by the operator)
+    shared_dir = CONFIGS_DIR / "shared"
+    if shared_dir.exists():
+        for path in sorted(shared_dir.glob("*.yaml")):
+            base = config.get(path.stem, {})
+            override = yaml.safe_load(path.read_text()) or {}
+            config[path.stem] = {**base, **override}
+
+    # Step 3: per-server overrides (not versioned, managed by the operator)
     override_dir = CONFIGS_DIR / server_id
     if override_dir.exists():
         for path in sorted(override_dir.glob("*.yaml")):
             base = config.get(path.stem, {})
-            override = yaml.safe_load(path.read_text())
+            override = yaml.safe_load(path.read_text()) or {}
             config[path.stem] = {**base, **override}
 
     return config
@@ -248,14 +266,14 @@ The merged config dict passed to every collector has the following structure:
 
 ### Scheduling
 
-The `cron_schedule` field in `configs/<server_id>/general.yaml` (or `configs/base/general.yaml` if not overridden) is the single source of truth for the execution schedule. Ansible reads this value directly from the YAML file during install and update, and writes the cron entry accordingly. There is no manual duplication of the schedule value.
+The `cron_schedule` field in `configs/<server_id>/general.yaml` (or `configs/base/general.yaml` if not overridden) is the single source of truth for the execution schedule. The deployment tool reads this value from the YAML file during install and update, and writes the cron entry accordingly. There is no manual duplication of the schedule value.
 
 ```yaml
-# Ansible reads this value and writes the cron entry
+# The deployment tool reads this value and writes the cron entry
 cron_schedule: "0 8 * * *"
 ```
 
-The cron entry written by Ansible uses the virtualenv Python directly:
+The cron entry uses the virtualenv Python directly:
 
 ```bash
 0 8 * * * /opt/server-report/.venv/bin/python /opt/server-report/main.py
@@ -263,15 +281,17 @@ The cron entry written by Ansible uses the virtualenv Python directly:
 
 ### Secrets management
 
-Secrets are never stored in the Git repository. They are managed via **Ansible Vault** and written to `/opt/server-report/.env` on each server during the deploy. `python-dotenv` loads this file at startup and exposes its contents as environment variables. Plugins read secrets exclusively from the environment, never from the config dict.
+Secrets are never stored in the Git repository. They are written to `/opt/server-report/.env` on each server during the deploy, using whatever secrets management tool the operator prefers (Ansible Vault, HashiCorp Vault, manual, etc.). `python-dotenv` loads this file at startup and exposes its contents as environment variables. Plugins read secrets exclusively from the environment, never from the config dict.
 
-| What                     | Where                                    |
-| ------------------------ | ---------------------------------------- |
-| Structural configuration | Git repository, `configs/` folder (YAML) |
-| Encrypted secrets        | Ansible repository, Ansible Vault        |
-| Plaintext secrets        | Server only, `/opt/server-report/.env`   |
+| What                 | Where                                                                             |
+| -------------------- | --------------------------------------------------------------------------------- |
+| Generic defaults     | Git repository, `configs/base/` (YAML, versioned)                                 |
+| Shared configuration | Server only, `configs/shared/` (YAML, managed by the operator, not versioned)     |
+| Per-server overrides | Server only, `configs/<hostname>/` (YAML, managed by the operator, not versioned) |
+| Encrypted secrets    | Operator's secrets manager (e.g. Ansible Vault, HashiCorp Vault)                  |
+| Plaintext secrets    | Server only, `/opt/server-report/.env`                                            |
 
-Example `.env` file written by Ansible on the server:
+Example `.env` file written on the server during deploy:
 
 ```bash
 MAILGUN_API_KEY=key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
@@ -287,23 +307,34 @@ password = os.environ.get("RESTIC_PASSWORD")
 
 ### Config file examples
 
-`configs/base/general.yaml`:
+`configs/base/general.yaml` (versioned in Git, generic defaults only):
 
 ```yaml
 mailgun_domain:  "mg.yourdomain.com"
 mailgun_api_url: "https://api.mailgun.net/v3"  # use api.eu.mailgun.net for EU accounts
 
-recipients:
-  - email: "admin@yourdomain.com"
-    format: "html"
+recipients: []  # empty by default, set in shared or per-server config
 
 cron_schedule: "0 8 * * *"  # every day at 08:00
 ```
 
-`configs/vps-prod/general.yaml`:
+`configs/shared/general.yaml` (not versioned, managed by the operator, common to all servers):
 
 ```yaml
-# Only keys that differ from base
+# Real Mailgun domain and default recipients shared across all servers.
+# This file is created by the operator and never committed to Git.
+mailgun_domain:  "mg.yourdomain.com"
+mailgun_api_url: "https://api.eu.mailgun.net/v3"
+
+recipients:
+  - email: "admin@yourdomain.com"
+    format: "html"
+```
+
+`configs/vps-prod/general.yaml` (not versioned, managed by the operator, server-specific):
+
+```yaml
+# Only keys that differ from base or shared for this specific server
 
 recipients:
   - email: "admin@yourdomain.com"
@@ -555,7 +586,7 @@ main.py
   │
   ├── loader.py
   │     ├── resolve server_id: os.environ.get("SERVER_ID") or socket.gethostname()
-  │     ├── merge configs/base/ with configs/<server_id>/  (YAML, lists replaced in full)
+  │     ├── merge configs/base/ then configs/shared/ then configs/<server_id>/  (YAML, lists replaced in full)
   │     ├── detect_system(): read /etc/os-release, inject as _system into config
   │     ├── scan resources/core/    (all files, safe import)
   │     ├── scan resources/plugins/ (all files present, safe import)
@@ -609,8 +640,8 @@ When calling from cron or scripts, use the full path without activating:
 
 1. Create `resources/plugins/myplugin.py` and implement `BaseCollector`
 2. Add `configs/base/myplugin.yaml` with default configuration values
-3. Add any required secrets to the Ansible Vault and update the `.env` template
-4. Deploy the updated repository with the Ansible update playbook
+3. Add any required secrets to the `.env` file on each server
+4. Deploy the updated repository with `git pull` on each server
 
 No changes to the core system are required. The loader discovers the new file automatically. All existing servers inherit the base config defaults without any changes to their own config folders.
 
@@ -618,47 +649,52 @@ No changes to the core system are required. The loader discovers the new file au
 
 ## Known Operational Risks
 
-| Risk                                                  | Mitigation                                                                                                                                           |
-| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Server hostname does not match `configs/` folder name | System silently falls back to base config. Ansible must set the hostname correctly at provisioning time. Verify with `--dry-run` after every deploy. |
-| Plugin file has a syntax error or bad import          | Loader catches the exception and continues. A warning is included in the report.                                                                     |
-| Collector hangs or runs too long                      | `collector_timeout_seconds` enforced by `loader.py`. Timed-out collectors return `status='error'`.                                                   |
-| Unsupported distro for a core collector               | Collector returns sentinel value in metrics (`-1` or `None`), never crashes. Documented in method docstring.                                         |
-| Cron fails silently                                   | Log every execution to `/var/log/server-report.log`. Consider `systemd timer` for built-in failure logging via `journalctl`.                         |
-| Missing `configs/base/<plugin>.yaml` for a new plugin | Plugin receives empty config and must use internal defaults. Enforce this convention in the deploy checklist.                                        |
-| Schedule change not deployed                          | Ansible reads `cron_schedule` from YAML and rewrites the cron. Run the update playbook after any config change.                                      |
+| Risk                                                  | Mitigation                                                                                                                                      |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Server hostname does not match `configs/` folder name | System silently falls back to base config. The hostname must be set correctly at provisioning time. Verify with `--dry-run` after every deploy. |
+| Plugin file has a syntax error or bad import          | Loader catches the exception and continues. A warning is included in the report.                                                                |
+| Collector hangs or runs too long                      | `collector_timeout_seconds` enforced by `loader.py`. Timed-out collectors return `status='error'`.                                              |
+| Unsupported distro for a core collector               | Collector returns sentinel value in metrics (`-1` or `None`), never crashes. Documented in method docstring.                                    |
+| Rocky Linux / RHEL ships Python 3.9 by default        | Install Python 3.11 explicitly with `dnf install python3.11` and use it to create the virtualenv.                                               |
+| `dnf check-update` exits with code 100 on updates     | This is expected behavior on RHEL-based systems. The services collector handles exit codes 0 and 100 as success, 1 as error.                    |
+| Cron fails silently                                   | Log every execution to `/var/log/server-report.log`. Consider `systemd timer` for built-in failure logging via `journalctl`.                    |
+| Missing `configs/base/<plugin>.yaml` for a new plugin | Plugin receives empty config and must use internal defaults. Enforce this convention in the deploy checklist.                                   |
+| `configs/shared/` missing on a new server             | System falls back to `configs/base/` defaults. The operator must create `configs/shared/` during install. Verify with `--dry-run` after deploy. |
+| Schedule change not deployed                          | The deployment tool reads `cron_schedule` from YAML and rewrites the cron. Run the update procedure after any config change.                    |
 
 ---
 
 ## Design Decisions Log
 
-| Decision                                               | Rationale                                                                                        |
-| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
-| YAML for config files                                  | Native merge semantics, consistent with Ansible, clear separation between data and code          |
-| PyYAML and python-dotenv as declared dependencies      | Minimal and stable, declared in `requirements.txt` with pinned versions, installed by Ansible    |
-| `requirements.txt` with pinned versions                | Ensures consistent behavior across all servers regardless of environment                         |
-| `socket.gethostname()` with `SERVER_ID` override       | Automatic identification in the normal case, flexibility for edge cases                          |
-| Ansible reads `cron_schedule` from YAML                | Single source of truth for the schedule, no manual duplication                                   |
-| Lists replaced in full on merge                        | Simple and predictable rule, no ambiguity in merge behavior                                      |
-| Git + Ansible instead of Docker                        | Plugins need direct access to host resources. Minimal dependencies make Docker unnecessary.      |
-| Plugin discovery from folder, no explicit registration | Adding a plugin requires no changes to the core system                                           |
-| Safe import for plugins                                | A broken plugin never blocks the execution of the others                                         |
-| `is_available()` before `collect()`                    | Plugins fail silently on incompatible hosts, no crashes                                          |
-| `collector_timeout_seconds` enforced per collector     | A slow or hanging collector never blocks the entire report                                       |
-| Config passed to collector at init, not read globally  | Plugin is self-contained and testable in isolation                                               |
-| `configs/base/` + per-server override folders          | Mirrors Ansible group_vars/host_vars pattern, scales cleanly as plugins grow                     |
-| One YAML file per resource in base                     | Adding a plugin adds one file, no changes to existing config files                               |
-| Secrets via python-dotenv from `.env` file             | Secrets never touch the Git repository, each server has its own values                           |
-| Virtualenv at `/opt/server-report/.venv`               | Isolates dependencies from system Python, avoids conflicts with distro-managed packages          |
-| `VERSION` file included in every report                | Operator always knows which version is running on each server                                    |
-| JSON format for full structured data                   | Preserves complete metric structure for external processing                                      |
-| CSV format as fixed-column anomaly log                 | Openable directly in Excel without any parser, suited for lightweight historical tracking        |
-| JSON and CSV as attachments, text and html as body     | Matches natural usage of each format in an email context                                         |
-| Minimal plain text body for attachment emails          | Email is never empty, recipient always has context                                               |
-| Mailgun as mail provider                               | Simple REST API, no SMTP configuration, generous free tier                                       |
-| One instance per server                                | Simpler mental model, no central coordinator needed                                              |
-| No real-time alerting                                  | Out of scope, dedicated tools handle this better                                                 |
-| No metric history on server                            | Delegated to the recipient, keeps the system stateless                                           |
-| `_system` injected by loader, not from YAML            | Single detection point, collectors receive ready-to-use info without duplicating detection logic |
-| Distro differences isolated in private helper methods  | `collect()` remains clean and readable, distro-specific code is contained and easy to extend     |
-| Sentinel values for unsupported features               | Core collectors always return a Result; missing support is surfaced as data, not as an error     |
+| Decision                                                  | Rationale                                                                                                              |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| YAML for config files                                     | Native merge semantics, consistent with common deployment tools, clear separation between data and code                |
+| PyYAML and python-dotenv as declared dependencies         | Minimal and stable, declared in `requirements.txt` with pinned versions                                                |
+| `requirements.txt` with pinned versions                   | Ensures consistent behavior across all servers regardless of environment                                               |
+| `socket.gethostname()` with `SERVER_ID` override          | Automatic identification in the normal case, flexibility for edge cases                                                |
+| Deployment tool reads `cron_schedule` from YAML           | Single source of truth for the schedule, no manual duplication                                                         |
+| Lists replaced in full on merge                           | Simple and predictable rule, no ambiguity in merge behavior                                                            |
+| Git + direct host deployment instead of Docker            | Plugins need direct access to host resources. Minimal dependencies make Docker unnecessary.                            |
+| Plugin discovery from folder, no explicit registration    | Adding a plugin requires no changes to the core system                                                                 |
+| Safe import for plugins                                   | A broken plugin never blocks the execution of the others                                                               |
+| `is_available()` before `collect()`                       | Plugins fail silently on incompatible hosts, no crashes                                                                |
+| `collector_timeout_seconds` enforced per collector        | A slow or hanging collector never blocks the entire report                                                             |
+| Config passed to collector at init, not read globally     | Plugin is self-contained and testable in isolation                                                                     |
+| `configs/base/` + `shared/` + per-server override folders | Three-tier config pattern, scales cleanly as plugins and servers grow                                                  |
+| One YAML file per resource in base                        | Adding a plugin adds one file, no changes to existing config files                                                     |
+| Secrets via python-dotenv from `.env` file                | Secrets never touch the Git repository, each server has its own values                                                 |
+| `configs/shared/` not versioned in Git                    | Contains real Mailgun domain and recipients; managed by the operator, never committed to avoid conflicts on `git pull` |
+| Virtualenv at `/opt/server-report/.venv`                  | Isolates dependencies from system Python, avoids conflicts with distro-managed packages                                |
+| `VERSION` file included in every report                   | Operator always knows which version is running on each server                                                          |
+| JSON format for full structured data                      | Preserves complete metric structure for external processing                                                            |
+| CSV format as fixed-column anomaly log                    | Openable directly in Excel without any parser, suited for lightweight historical tracking                              |
+| JSON and CSV as attachments, text and html as body        | Matches natural usage of each format in an email context                                                               |
+| Minimal plain text body for attachment emails             | Email is never empty, recipient always has context                                                                     |
+| Mailgun as mail provider                                  | Simple REST API, no SMTP configuration, generous free tier                                                             |
+| One instance per server                                   | Simpler mental model, no central coordinator needed                                                                    |
+| No real-time alerting                                     | Out of scope, dedicated tools handle this better                                                                       |
+| No metric history on server                               | Delegated to the recipient, keeps the system stateless                                                                 |
+| `_system` injected by loader, not from YAML               | Single detection point, collectors receive ready-to-use info without duplicating detection logic                       |
+| Distro differences isolated in private helper methods     | `collect()` remains clean and readable, distro-specific code is contained and easy to extend                           |
+| `dnf check-update` called via subprocess directly         | The `_run()` helper discards exit codes; dnf uses exit code 100 for available updates which must be preserved          |
+| Sentinel values for unsupported features                  | Core collectors always return a Result; missing support is surfaced as data, not as an error                           |
