@@ -162,12 +162,21 @@ class HtmlFormatter(BaseFormatter):
 
         elif result.name == "Network":
             tcp = "<br>".join(_e(l) for l in m.get("tcp_summary", []))
-            logins = m.get("recent_logins", [])
-            login_html = "<br>".join(_e(l) for l in logins)
             parts.append(f"<p style='margin:0'>{tcp}</p>")
+
+        elif result.name == "Security":
+            failed = m.get("failed_ssh_attempts", 0)
+            parts.append(
+                f"<p style='margin:0'><b>Failed SSH attempts (24h):</b> {_e(failed)}</p>"
+            )
+            logins = m.get("recent_logins", [])
             if logins:
+                items = "".join(
+                    f"<li style='font-family:monospace'>{_e(l)}</li>" for l in logins
+                )
                 parts.append(
-                    f"<p style='margin:8px 0 0'><b>Recent logins:</b><br>{login_html}</p>"
+                    "<p style='margin:8px 0 2px'><b>Recent logins:</b></p>"
+                    f"<ul style='margin:0;padding-left:20px;font-size:12px'>{items}</ul>"
                 )
 
         elif result.name == "Services":
