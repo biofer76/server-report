@@ -72,5 +72,7 @@ class MemoryCollector(BaseCollector):
         for line in out.splitlines():
             if line.startswith("Swap:"):
                 parts = line.split()
+                if len(parts) < 3:  # swap not configured on this host
+                    return {"total_mb": 0, "used_mb": 0}
                 return {"total_mb": int(parts[1]), "used_mb": int(parts[2])}
         return {"total_mb": 0, "used_mb": 0}

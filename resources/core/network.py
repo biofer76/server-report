@@ -46,7 +46,7 @@ class NetworkCollector(BaseCollector):
         out = _run(["ss", "-s"])
         return [
             line for line in out.splitlines()
-            if "TCP" in line or "estab" in line
+            if "estab" in line
         ][:5]
 
     def _get_recent_logins(self, n: int) -> list[str]:

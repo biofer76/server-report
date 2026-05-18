@@ -67,8 +67,12 @@ sudo apt install -y git
 git clone https://github.com/biofer76/server-report /opt/server-report
 cd /opt/server-report
 
+# Create and enable virtualenv
+python3 -m venv /opt/server-report/.venv
+source /opt/server-report/.venv/bin/activate
+
 # Install dependencies
-pip install -r requirements.txt --break-system-packages
+pip install -r requirements.txt
 ```
 
 ---

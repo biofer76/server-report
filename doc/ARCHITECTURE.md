@@ -67,17 +67,19 @@ Each monitored server runs the system directly on the host. The repository is cl
 ### Installing on a new server
 
 1. Verify Python 3.10+ is present, install if missing
-2. Clone the repository to `/opt/server-report`
-3. Install dependencies: `pip install -r requirements.txt`
-4. Set the server hostname via Ansible to match the folder name under `configs/`
-5. Write the `.env` file with server-specific secrets, generated from Ansible Vault
-6. Read `cron_schedule` from the server's `general.yaml` and write the cron entry
-7. Run `python3 main.py --dry-run` as a smoke test to verify everything works
+2. Install `python3.12-venv` if missing: `sudo apt install python3.12-venv`
+3. Clone the repository to `/opt/server-report`
+4. Create the virtualenv: `python3 -m venv /opt/server-report/.venv`
+5. Install dependencies: `/opt/server-report/.venv/bin/pip install -r requirements.txt`
+6. Set the server hostname via Ansible to match the folder name under `configs/`
+7. Write the `.env` file with server-specific secrets, generated from Ansible Vault
+8. Read `cron_schedule` from the server's `general.yaml` and write the cron entry
+9. Run `/opt/server-report/.venv/bin/python main.py --dry-run` as a smoke test
 
 ### Updating an existing server
 
 1. `git pull` on the server
-2. `pip install -r requirements.txt` to pick up any new or updated dependencies
+2. `/opt/server-report/.venv/bin/pip install -r requirements.txt` to pick up any new or updated dependencies
 3. Restart cron if the schedule has changed
 
 Both operations are Ansible playbooks: `ansible/install.yml` and `ansible/update.yml`.
@@ -251,6 +253,12 @@ The `cron_schedule` field in `configs/<server_id>/general.yaml` (or `configs/bas
 ```yaml
 # Ansible reads this value and writes the cron entry
 cron_schedule: "0 8 * * *"
+```
+
+The cron entry written by Ansible uses the virtualenv Python directly:
+
+```bash
+0 8 * * * /opt/server-report/.venv/bin/python /opt/server-report/main.py
 ```
 
 ### Secrets management
@@ -576,6 +584,9 @@ main.py
 ## CLI Usage
 
 ```bash
+# Activate the virtualenv (or use the full path below)
+source /opt/server-report/.venv/bin/activate
+
 # Send report to all configured recipients
 python3 main.py
 
@@ -584,6 +595,12 @@ python3 main.py --dry-run
 
 # Override recipient for a one-off send
 python3 main.py --to other@email.com --format html
+```
+
+When calling from cron or scripts, use the full path without activating:
+
+```bash
+/opt/server-report/.venv/bin/python /opt/server-report/main.py
 ```
 
 ---
@@ -632,6 +649,7 @@ No changes to the core system are required. The loader discovers the new file au
 | `configs/base/` + per-server override folders          | Mirrors Ansible group_vars/host_vars pattern, scales cleanly as plugins grow                     |
 | One YAML file per resource in base                     | Adding a plugin adds one file, no changes to existing config files                               |
 | Secrets via python-dotenv from `.env` file             | Secrets never touch the Git repository, each server has its own values                           |
+| Virtualenv at `/opt/server-report/.venv`               | Isolates dependencies from system Python, avoids conflicts with distro-managed packages          |
 | `VERSION` file included in every report                | Operator always knows which version is running on each server                                    |
 | JSON format for full structured data                   | Preserves complete metric structure for external processing                                      |
 | CSV format as fixed-column anomaly log                 | Openable directly in Excel without any parser, suited for lightweight historical tracking        |
