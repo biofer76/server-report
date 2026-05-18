@@ -1,0 +1,1 @@
+watch: []   # list of service names to explicitly check (empty = only systemctl --failed)

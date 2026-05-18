@@ -1,0 +1,1 @@
+include_stopped: false   # include stopped containers in the report

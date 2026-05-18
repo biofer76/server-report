@@ -1,0 +1,2 @@
+# Restic repository path override for this server.
+repository: "/mnt/client-backups/restic"

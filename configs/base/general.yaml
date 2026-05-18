@@ -1,0 +1,11 @@
+mailgun_domain:  "mg.yourdomain.com"
+mailgun_api_url: "https://api.mailgun.net/v3"  # use api.eu.mailgun.net for EU accounts
+email_from:      "server-report@mg.yourdomain.com"
+
+recipients:
+  - email: "admin@yourdomain.com"
+    format: "html"
+
+cron_schedule: "0 8 * * *"  # every day at 08:00
+
+collector_timeout_seconds: 30

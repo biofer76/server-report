@@ -1,0 +1,16 @@
+[flake8]
+max-line-length = 88
+extend-ignore =
+    E203,   # whitespace before ':' (Black compatibility)
+    W503,   # line break before binary operator (PEP8 updated style)
+    E221,   # multiple spaces before operator (used for aligned assignments)
+    E741,   # ambiguous variable name (e.g. 'l' in loop variables)
+exclude =
+    .git,
+    __pycache__,
+    .venv,
+    venv,
+    .eggs,
+    build,
+    dist
+max-complexity = 10

@@ -1,0 +1,2 @@
+load_multiplier: 1.5   # alert when load_1m > cores * load_multiplier
+top_processes_n: 5     # number of top processes to include in the report

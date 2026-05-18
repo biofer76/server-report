@@ -1,0 +1,2 @@
+# Disk alert threshold for this server.
+threshold_pct: 80   # alert earlier than the default 85%

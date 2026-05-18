@@ -1,0 +1,2 @@
+ram_threshold_pct:  90   # alert when RAM usage exceeds this percentage
+swap_threshold_pct: 80   # alert when swap usage exceeds this percentage

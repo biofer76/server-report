@@ -1,0 +1,17 @@
+# Per-server overrides for general settings.
+# Copy this folder to configs/<your-server-hostname>/ and edit as needed.
+# Only include keys that differ from configs/base/general.yaml.
+
+mailgun_domain:  "mg.example.com"
+mailgun_api_url: "https://api.eu.mailgun.net/v3"  # EU endpoint
+email_from:      "server-report@mg.example.com"
+
+recipients:
+  - email: "admin@example.com"
+    format: "html"
+  - email: "ops@example.com"
+    format: "json"
+
+cron_schedule: "0 7 * * *"  # every day at 07:00
+
+collector_timeout_seconds: 30

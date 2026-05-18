@@ -1,0 +1,2 @@
+# CPU alert threshold for this server.
+load_multiplier: 2.0   # this server has bursty workloads, raise threshold
