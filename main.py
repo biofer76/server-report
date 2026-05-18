@@ -136,7 +136,6 @@ def main() -> None:
             f"send OK  host={hostname}  version={version}  "
             f"collectors={len(collectors)}  recipients={len(recipients)}"
         )
-        print(f"[OK] Report sent to {len(recipients)} recipient(s)")
     except Exception as exc:
         _log(f"send ERROR  host={hostname}  error={exc}")
         print(f"[ERROR] Failed to send report: {exc}", file=sys.stderr)
