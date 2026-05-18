@@ -124,7 +124,9 @@ class TextFormatter(BaseFormatter):
 
         elif result.name == "Services":
             failed = m.get("failed_services", [])
+            updates = m.get("available_updates", -1)
             lines.append(f"  Failed: {m.get('failed_count', 0)}")
+            lines.append(f"  Available updates: {'n/a' if updates == -1 else updates}")
             for svc in failed:
                 lines.append(f"    - {svc}")
             watched = m.get("watched", {})

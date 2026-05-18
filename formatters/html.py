@@ -203,8 +203,11 @@ class HtmlFormatter(BaseFormatter):
 
         elif result.name == "Services":
             failed = m.get("failed_services", [])
+            updates = m.get("available_updates", -1)
+            updates_display = "n/a" if updates == -1 else updates
             parts.append(
-                f"<p style='margin:0'><b>Failed:</b> {_e(m.get('failed_count', 0))}</p>"
+                f"<p style='margin:0'><b>Failed:</b> {_e(m.get('failed_count', 0))}<br>"
+                f"<b>Available updates:</b> {_e(updates_display)}</p>"
             )
             if failed:
                 items = "".join(f"<li>{_e(s)}</li>" for s in failed)
