@@ -43,8 +43,8 @@ class MemoryCollector(BaseCollector):
                     f"RAM usage at {ram['pct']:.1f}% (threshold: {ram_threshold}%)"
                 )
 
-            if swap["total"] > 0:
-                swap_pct = swap["used"] / swap["total"] * 100
+            if swap["total_mb"] > 0:
+                swap_pct = swap["used_mb"] / swap["total_mb"] * 100
                 if swap_pct >= swap_threshold:
                     alerts.append(
                         f"Swap usage at {swap_pct:.1f}% (threshold: {swap_threshold}%)"
