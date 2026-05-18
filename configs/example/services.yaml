@@ -1,4 +1,2 @@
-# Services to explicitly watch on this server (in addition to systemctl --failed).
-watch:
-  - nginx
-  - postgresql
+watch: []  # list of service names to explicitly monitor on this server
+           # example: [nginx, postgresql, redis]

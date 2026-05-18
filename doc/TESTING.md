@@ -67,7 +67,12 @@ sudo apt install -y git
 git clone https://github.com/biofer76/server-report /opt/server-report
 cd /opt/server-report
 
-# Create and enable virtualenv
+# Install venv package
+# Ubuntu 24.04: python3.12-venv  |  Debian 12: python3.11-venv
+# Check your Python version first: python3 --version
+sudo apt install -y python3.12-venv   # adjust version if needed
+
+# Create and activate the virtualenv
 python3 -m venv /opt/server-report/.venv
 source /opt/server-report/.venv/bin/activate
 
@@ -83,6 +88,7 @@ pip install -r requirements.txt
 # Create a minimal .env file (no real Mailgun key needed for dry-run)
 cat > /opt/server-report/.env << 'EOF'
 MAILGUN_API_KEY=key-test-placeholder
+SERVER_ID=server-report-test
 EOF
 
 # Verify the example config folder is present
@@ -102,6 +108,7 @@ The dry-run test is the baseline. It must always complete without errors.
 
 ```bash
 cd /opt/server-report
+source .venv/bin/activate
 python3 main.py --dry-run
 ```
 
@@ -109,7 +116,7 @@ python3 main.py --dry-run
 
 - Report printed to stdout with no Python tracebacks
 - `_system` block shows `distro: ubuntu` (or `debian`) and `package_manager: apt`
-- All core collectors present: CPU, Memory, Disk, Network, Services
+- All core collectors present: CPU, Disk, Memory, Network, Security, Services
 - Optional plugins absent if not installed: Restic, Docker, Nginx shown as skipped or absent
 - No `[ERROR]` lines unless a collector genuinely fails
 
@@ -129,7 +136,9 @@ print(cfg.get("_system"))
 EOF
 ```
 
-Expected: `{'distro': 'ubuntu', 'distro_version': '24.04', 'distro_pretty': 'Ubuntu 24.04 LTS', 'package_manager': 'apt'}`
+Expected on Ubuntu: `{'distro': 'ubuntu', 'distro_version': '24.04', 'distro_pretty': 'Ubuntu 24.04 LTS', 'package_manager': 'apt'}`
+
+Expected on Debian: `{'distro': 'debian', 'distro_version': '12', 'distro_pretty': 'Debian GNU/Linux 12 (bookworm)', 'package_manager': 'apt'}`
 
 ### CPU
 
@@ -188,6 +197,23 @@ EOF
 ```
 
 **Watch for:** `ss` missing on minimal systems. Install with `sudo apt install iproute2`.
+
+### Security
+
+```bash
+python3 - << 'PYEOF'
+from loader import load_config
+from resources.core.security import SecurityCollector
+cfg = load_config()
+c = SecurityCollector(cfg.get("security", {}))
+r = c.collect()
+print(r.status, r.metrics)
+PYEOF
+```
+
+**Watch for:**
+- `recent_logins` must be a list with no empty entries and no `wtmp begins` line
+- `failed_ssh_attempts` must be an integer
 
 ### Services
 
@@ -267,6 +293,10 @@ Verify each formatter produces valid output.
 
 ```bash
 python3 - << 'EOF'
+import os
+from dotenv import load_dotenv
+load_dotenv("/opt/server-report/.env", override=True)
+
 import socket
 from datetime import datetime
 from loader import load_config, discover_collectors, run_collectors
@@ -278,7 +308,7 @@ from formatters.csv import CsvFormatter
 cfg        = load_config()
 collectors, warnings = discover_collectors(cfg)
 results    = run_collectors(collectors, cfg)
-hostname   = socket.gethostname()
+hostname   = os.environ.get("SERVER_ID") or socket.gethostname()
 timestamp  = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 version    = open("VERSION").read().strip()
 
@@ -305,6 +335,9 @@ Only run this when Mailgun is configured and you want to verify the full flow.
 ```bash
 # Set real credentials in .env
 echo "MAILGUN_API_KEY=key-your-real-key" >> /opt/server-report/.env
+
+# Activate the virtualenv
+source /opt/server-report/.venv/bin/activate
 
 # Send to a single address to avoid spamming all recipients
 python3 main.py --to your@email.com --format html
@@ -374,4 +407,6 @@ Run through this list before tagging a new version.
 - [ ] No hardcoded credentials, paths, or thresholds in the code
 - [ ] `VERSION` file updated
 - [ ] `requirements.txt` versions are still pinned and current
+- [ ] Cron entry set and verified with a one-minute test schedule
+- [ ] Log at /var/log/server-report.log shows structured send OK lines only
 - [ ] Test VM deleted after testing
