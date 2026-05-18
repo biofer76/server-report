@@ -122,8 +122,12 @@ class HtmlFormatter(BaseFormatter):
                     ("Architecture", "architecture"),
                     ("Uptime",       "uptime"),
                     ("CPU model",    "cpu_model"),
-                    ("Total RAM",    "total_ram_mb"),
                 ]
+            )
+            total_ram = m.get("total_ram_mb", 0)
+            rows += (
+                f"<tr><td style='color:#6c757d;padding-right:16px'><b>Total RAM</b></td>"
+                f"<td>{_e(total_ram)} MB</td></tr>"
             )
             parts.append(
                 f"<table style='border-collapse:collapse;font-size:13px'>{rows}</table>"

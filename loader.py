@@ -79,6 +79,7 @@ def load_config() -> dict:
             config[path.stem] = _deep_merge(base, override)
 
     config["_system"] = detect_system()
+    config.setdefault("system", {})["_system"] = config["_system"]
     return config
 
 
