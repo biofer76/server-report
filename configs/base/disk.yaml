@@ -1,7 +1,16 @@
 threshold_pct: 85          # alert when any partition exceeds this usage percentage
+
 exclude_types:             # filesystem types to exclude from reporting
   - tmpfs
+  - devtmpfs
   - udev
   - overlay
-  - devtmpfs
-exclude_mounts: []         # specific mount points to exclude
+  - squashfs
+
+exclude_mounts:            # exact paths and prefixes to exclude (prefix match: /sys excludes /sys/firmware/...)
+  - /boot
+  - /boot/efi
+  - /sys
+  - /proc
+  - /dev
+  - /run

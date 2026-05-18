@@ -47,8 +47,8 @@ class DiskCollector(BaseCollector):
 
     def _get_partitions(self) -> list[dict]:
         out = _run(["df", "-h", "--output=target,fstype,size,used,avail,pcent"])
-        exclude_types = set(self.config.get("exclude_types", ["tmpfs", "udev", "overlay", "devtmpfs"]))
-        exclude_mounts = set(self.config.get("exclude_mounts", []))
+        exclude_types = set(self.config.get("exclude_types", ["tmpfs", "udev", "overlay", "devtmpfs", "squashfs"]))
+        exclude_mounts = self.config.get("exclude_mounts", ["/boot", "/boot/efi", "/sys", "/proc", "/dev", "/run"])
 
         rows = []
         for line in out.splitlines()[1:]:
@@ -58,7 +58,7 @@ class DiskCollector(BaseCollector):
             mount, fstype, size, used, avail, pct = parts
             if fstype in exclude_types:
                 continue
-            if mount in exclude_mounts:
+            if any(mount == ex or mount.startswith(ex + "/") for ex in exclude_mounts):
                 continue
             if "loop" in mount:
                 continue
