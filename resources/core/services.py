@@ -91,10 +91,16 @@ class ServicesCollector(BaseCollector):
                 capture_output=True, text=True, timeout=30,
             )
             if result.returncode in (0, 100):
-                return len([
-                    l for l in result.stdout.splitlines()
-                    if l.strip() and not l.startswith("Last metadata")
-                ])
+                count = 0
+                for line in result.stdout.splitlines():
+                    if not line.strip():
+                        continue
+                    if line.startswith("Obsoleting"):
+                        break
+                    first_word = line.split()[0] if line.split() else ""
+                    if "." in first_word:
+                        count += 1
+                return count
             return -1
 
         return -1
