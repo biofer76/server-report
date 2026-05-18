@@ -44,7 +44,7 @@ class HtmlFormatter(BaseFormatter):
         header_color = _STATUS_COLORS.get(overall_status, "#343a40")
 
         sections = []
-        for result in results:
+        for result in sorted(results, key=lambda r: (0 if r.name == "System" else 1, r.name)):
             sections.append(self._render_section(result))
 
         alerts_html = self._render_alerts_summary(all_alerts)
@@ -111,7 +111,25 @@ class HtmlFormatter(BaseFormatter):
         parts = []
         m = result.metrics
 
-        if result.name == "CPU":
+        if result.name == "System":
+            rows = "".join(
+                f"<tr><td style='color:#6c757d;padding-right:16px'><b>{_e(label)}</b></td>"
+                f"<td>{_e(m.get(key, 'n/a'))}</td></tr>"
+                for label, key in [
+                    ("Hostname",     "hostname"),
+                    ("Distro",       "distro"),
+                    ("Kernel",       "kernel"),
+                    ("Architecture", "architecture"),
+                    ("Uptime",       "uptime"),
+                    ("CPU model",    "cpu_model"),
+                    ("Total RAM",    "total_ram_mb"),
+                ]
+            )
+            parts.append(
+                f"<table style='border-collapse:collapse;font-size:13px'>{rows}</table>"
+            )
+
+        elif result.name == "CPU":
             parts.append(
                 f"<p style='margin:0'><b>Cores:</b> {_e(m.get('cores', 'n/a'))}<br>"
                 f"<b>Load avg:</b> {m.get('load_1m',0):.2f} / "

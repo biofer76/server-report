@@ -41,7 +41,7 @@ class TextFormatter(BaseFormatter):
         lines.append("")
         lines.append(sep)
 
-        for result in results:
+        for result in sorted(results, key=lambda r: (0 if r.name == "System" else 1, r.name)):
             lines.append("")
             status_tag = f"[{result.status.upper()}]"
             lines.append(f"{result.name}  {status_tag}")
@@ -67,7 +67,16 @@ class TextFormatter(BaseFormatter):
         """Append metric lines for a single result."""
         m = result.metrics
 
-        if result.name == "CPU":
+        if result.name == "System":
+            lines.append(f"  Hostname:      {m.get('hostname', 'n/a')}")
+            lines.append(f"  Distro:        {m.get('distro', 'n/a')}")
+            lines.append(f"  Kernel:        {m.get('kernel', 'n/a')}")
+            lines.append(f"  Architecture:  {m.get('architecture', 'n/a')}")
+            lines.append(f"  Uptime:        {m.get('uptime', 'n/a')}")
+            lines.append(f"  CPU model:     {m.get('cpu_model', 'n/a')}")
+            lines.append(f"  Total RAM:     {m.get('total_ram_mb', 0)} MB")
+
+        elif result.name == "CPU":
             lines.append(f"  Cores:     {m.get('cores', 'n/a')}")
             lines.append(
                 f"  Load avg:  {m.get('load_1m', 0):.2f}  "
