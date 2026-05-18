@@ -78,8 +78,11 @@ def load_config() -> dict:
             override = yaml.safe_load(path.read_text()) or {}
             config[path.stem] = _deep_merge(base, override)
 
-    config["_system"] = detect_system()
-    config.setdefault("system", {})["_system"] = config["_system"]
+    system_info = detect_system()
+    config["_system"] = system_info
+    for key in config:
+        if not key.startswith("_"):
+            config[key]["_system"] = system_info
     return config
 
 
