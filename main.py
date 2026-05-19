@@ -4,6 +4,7 @@
 import argparse
 import os
 import socket
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -48,6 +49,60 @@ def _log(message: str) -> None:
         pass  # non-fatal if log directory is not writable
 
 
+_CRON_MARKER = "server-report/main.py"
+_MAIN_PY = str(Path(__file__).resolve())
+
+
+def _require_root(flag: str) -> None:
+    """Exit with an error if the current process is not running as root."""
+    if os.geteuid() != 0:
+        print(f"[ERROR] {flag} must be run as root (use sudo)", file=sys.stderr)
+        sys.exit(1)
+
+
+def _read_crontab() -> list[str]:
+    """Return current root crontab lines, or [] if no crontab is set."""
+    result = subprocess.run(
+        ["crontab", "-l"], capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        return []
+    return result.stdout.splitlines()
+
+
+def _write_crontab(lines: list[str]) -> None:
+    """Write lines as the root crontab."""
+    content = "\n".join(lines) + "\n"
+    subprocess.run(
+        ["crontab", "-"],
+        input=content, text=True, check=True,
+    )
+
+
+def _install_cron(general: dict) -> None:
+    """Write the server-report cron entry, replacing any existing one."""
+    _require_root("--install-cron")
+    schedule = general.get("cron_schedule", "0 8 * * *")
+    cron_line = f"{schedule} {sys.executable} {_MAIN_PY} >> /var/log/server-report.log 2>&1"
+    existing = [l for l in _read_crontab() if _CRON_MARKER not in l]
+    _write_crontab(existing + [cron_line])
+    print(f"[OK] Cron entry written: {cron_line}")
+    _log(f"install-cron OK  entry={cron_line!r}")
+
+
+def _remove_cron() -> None:
+    """Remove the server-report cron entry if present."""
+    _require_root("--remove-cron")
+    current = _read_crontab()
+    filtered = [l for l in current if _CRON_MARKER not in l]
+    if len(filtered) == len(current):
+        print("[INFO] No cron entry found for server-report")
+        return
+    _write_crontab(filtered)
+    print("[OK] Cron entry removed")
+    _log("remove-cron OK")
+
+
 def _build_recipients(args: argparse.Namespace, general_config: dict) -> list[dict]:
     """Return the recipient list, overriding with CLI arguments when given."""
     if args.to:
@@ -75,15 +130,33 @@ def main() -> None:
         default="",
         help="Format to use with --to (default: text)",
     )
+    parser.add_argument(
+        "--install-cron",
+        action="store_true",
+        help="Write the cron entry for this server (requires root)",
+    )
+    parser.add_argument(
+        "--remove-cron",
+        action="store_true",
+        help="Remove the cron entry for this server (requires root)",
+    )
     args = parser.parse_args()
+
+    # Load configuration (needed by cron operations too)
+    config = loader.load_config()
+    general = config.get("general", {})
+
+    if args.install_cron:
+        _install_cron(general)
+        return
+
+    if args.remove_cron:
+        _remove_cron()
+        return
 
     version = _read_version()
     hostname = os.environ.get("SERVER_ID") or socket.gethostname()
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    # Load configuration
-    config = loader.load_config()
-    general = config.get("general", {})
 
     # Discover and run collectors
     collectors, warnings = loader.discover_collectors(config)
