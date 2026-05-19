@@ -1,110 +1,235 @@
 # server-report - Testing Guide
 
-This document describes how to set up a test environment on GCP and run the
-test suite after every change. Keep it updated as new collectors and plugins
-are added.
+This document describes how to run the test suite for `server-report`.
+There are two levels of testing:
+
+- **Unit tests** (`pytest`): fast, run locally, no VM required
+- **Integration tests** (`scripts/run-tests.sh`): run on a real GCP VM, test the full system end-to-end
+
+Run unit tests first. Run integration tests before every release.
 
 ---
 
-## 1. Create a GCP test VM
+## 1. Prerequisites
 
-**Important:** Always verify the active GCP project before running any
-`gcloud` command. Use `--project=PROJECT-ID` explicitly in every
-command, or set the project for the current session with:
+**Local machine:**
+- Python 3.10+
+- `gcloud` CLI authenticated and configured
+- A GCP project with billing enabled
+
+**Always verify the active GCP project before running any `gcloud` command:**
 
 ```bash
 gcloud config set project PROJECT-ID
-
-# verify
 gcloud config get project
 ```
 
-```bash
-# Authenticate if needed
-gcloud auth login
-
-
-# Create a minimal Debian or Ubuntu VM (e2-micro is free tier eligible)
-gcloud compute instances create server-report-test \
-  --zone=europe-west8-a \
-  --machine-type=e2-micro \
-  --image-family=ubuntu-2404-lts-amd64 \
-  --image-project=ubuntu-os-cloud \
-  --boot-disk-size=10GB \
-  --tags=server-report-test
-
-# SSH into the VM
-gcloud compute ssh server-report-test --zone=europe-west8-a
-```
-
-To test on Debian instead, replace the image flags with:
+**Install local dependencies:**
 
 ```bash
---image-family=debian-12 \
---image-project=debian-cloud
-```
-
----
-
-## 2. Provision the VM
-
-Run these commands once after the VM is created.
-
-```bash
-# Update packages
-sudo apt update && sudo apt upgrade -y
-
-# Install Python 3.10+ (already present on Ubuntu 24.04 and Debian 12)
-python3 --version
-
-# Install pip if missing
-sudo apt install -y python3-pip
-
-# Install git
-sudo apt install -y git
-
-# Clone the repository
-git clone https://github.com/biofer76/server-report /opt/server-report
-cd /opt/server-report
-
-# Install venv package
-# Ubuntu 24.04: python3.12-venv  |  Debian 12: python3.11-venv
-# Check your Python version first: python3 --version
-sudo apt install -y python3.12-venv   # adjust version if needed
-
-# Create and activate the virtualenv
-python3 -m venv /opt/server-report/.venv
-source /opt/server-report/.venv/bin/activate
-
-# Install dependencies
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
 ---
 
-## 3. Minimal configuration
+## 2. Unit tests
+
+Unit tests run locally with no VM and no GCP costs. They use fixture
+files in `tests/fixtures/` collected from real systems.
 
 ```bash
-# Create a minimal .env file (no real Mailgun key needed for dry-run)
-cat > /opt/server-report/.env << 'EOF'
-MAILGUN_API_KEY=key-test-placeholder
-SERVER_ID=server-report-test
-EOF
+source .venv/bin/activate
+pytest tests/ -v
+```
 
-# Verify the example config folder is present
-ls configs/example/
+**What is tested:**
+- `test_memory.py`: RAM parsing, swap absent or zero, alert threshold
+- `test_disk.py`: mount point exclusions, partition parsing, alert threshold
+- `test_security.py`: wtmp line filtering, empty line filtering, SSH attempt count
+- `test_services.py`: apt update count, dnf update count (exit code 100), unknown package manager
+- `test_system.py`: os-release parsing for Ubuntu/Debian/Rocky, missing file fallback
+- `test_loader.py`: three-level config merge, list replacement, `_system` injection
+- `test_install_cron.py`: `--install-cron` requires root
 
-# Optionally copy the example config as a server override
-# The hostname must match the folder name under configs/
-hostname
-cp -r configs/example configs/$(hostname)
+**Expected output:**
+
+```
+27 passed in 0.8s
 ```
 
 ---
 
-## 4. Smoke test (run after every change)
+## 3. Collecting fixtures
 
-The dry-run test is the baseline. It must always complete without errors.
+Fixtures are real command outputs collected from GCP VMs. They are
+versioned in `tests/fixtures/` and should be refreshed when a new
+distro version is added or when a collector changes its command.
+
+```bash
+chmod +x scripts/collect-fixtures.sh
+
+bash scripts/collect-fixtures.sh ubuntu PROJECT-ID europe-west8-a
+bash scripts/collect-fixtures.sh debian PROJECT-ID europe-west8-a
+bash scripts/collect-fixtures.sh rocky PROJECT-ID europe-west8-a
+```
+
+The script creates and deletes the VM automatically. Collected files
+are saved to `tests/fixtures/<distro>/`.
+
+After collecting, commit the updated fixtures:
+
+```bash
+git add tests/fixtures/
+git commit -m "test(fixtures): refresh fixtures for <distro>"
+```
+
+---
+
+## 4. Integration tests
+
+Integration tests create a real GCP VM, provision `server-report`,
+run all checks and report pass/fail for each one. The VM is deleted
+automatically on exit.
+
+```bash
+chmod +x scripts/run-tests.sh
+
+bash scripts/run-tests.sh ubuntu PROJECT-ID europe-west8-a
+bash scripts/run-tests.sh debian PROJECT-ID europe-west8-a
+bash scripts/run-tests.sh rocky PROJECT-ID europe-west8-a
+```
+
+**What is checked:**
+
+| Check                                                               | Description                             |
+| ------------------------------------------------------------------- | --------------------------------------- |
+| `_system.distro`                                                    | Correct distro detected                 |
+| `_system.package_manager`                                           | `apt` on Ubuntu/Debian, `dnf` on Rocky  |
+| dry-run produces report                                             | No crash, output contains SERVER REPORT |
+| dry-run no tracebacks                                               | No Python exceptions in output          |
+| collector present: System/CPU/Disk/Memory/Network/Security/Services | All 7 core collectors appear            |
+| collector no error: (each)                                          | No collector in ERROR state             |
+| available_updates is integer                                        | Not `-1` (unknown package manager)      |
+| recent_logins no empty lines or wtmp                                | Security collector filters correctly    |
+| formatter: text_no_traceback                                        | Text formatter produces clean output    |
+| formatter: html_starts_with_tag                                     | HTML formatter produces valid HTML      |
+| formatter: json_parseable                                           | JSON formatter produces valid JSON      |
+| formatter: csv_header                                               | CSV has correct fixed columns           |
+| install-cron.sh writes cron entry                                   | Cron entry added to root crontab        |
+| remove-cron.sh removes cron entry                                   | Cron entry removed from root crontab    |
+| install-cron.sh no duplicate entries                                | Running twice does not add duplicates   |
+
+**Expected output:**
+
+```
+============================================================
+  RESULTS: ubuntu
+============================================================
+  PASSED: 27
+  FAILED: 0
+============================================================
+```
+
+Exit code is `0` if all checks pass, `1` if any check fails.
+
+---
+
+## 5. Manual VM setup (debug only)
+
+Use this section only when debugging a specific issue that the
+automated scripts do not surface. For routine testing use
+`run-tests.sh` instead.
+
+### Create VM
+
+```bash
+# Ubuntu 24.04
+gcloud compute instances create server-report-test \
+  --zone=europe-west8-a \
+  --project=PROJECT-ID \
+  --machine-type=e2-micro \
+  --image-family=ubuntu-2404-lts-amd64 \
+  --image-project=ubuntu-os-cloud \
+  --boot-disk-size=10GB
+
+# Debian 12
+gcloud compute instances create server-report-test \
+  --zone=europe-west8-a \
+  --project=PROJECT-ID \
+  --machine-type=e2-micro \
+  --image-family=debian-12 \
+  --image-project=debian-cloud \
+  --boot-disk-size=10GB
+
+# Rocky Linux 9 (use e2-medium and 20GB)
+gcloud compute instances create server-report-test \
+  --zone=europe-west8-a \
+  --project=PROJECT-ID \
+  --machine-type=e2-medium \
+  --image-family=rocky-linux-9 \
+  --image-project=rocky-linux-cloud \
+  --boot-disk-size=20GB
+
+gcloud compute ssh server-report-test --zone=europe-west8-a --project=PROJECT-ID
+```
+
+### Provision (Ubuntu / Debian)
+
+```bash
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y python3-pip git
+
+# Ubuntu 24.04
+sudo apt install -y python3.12-venv
+
+# Debian 12
+sudo apt install -y python3.11-venv
+
+sudo git clone https://github.com/biofer76/server-report /opt/server-report
+sudo chown -R $USER:$USER /opt/server-report
+cd /opt/server-report
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### Provision (Rocky Linux 9)
+
+```bash
+# Rocky Linux 9 ships with Python 3.9 - install 3.11 explicitly
+sudo dnf install -y python3.11 git
+
+sudo git clone https://github.com/biofer76/server-report /opt/server-report
+sudo chown -R $USER:$USER /opt/server-report
+cd /opt/server-report
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### Minimal configuration
+
+```bash
+cat > /opt/server-report/.env << 'EOF'
+MAILGUN_API_KEY=key-test-placeholder
+EOF
+
+mkdir -p configs/shared
+cat > configs/shared/general.yaml << 'EOF'
+mailgun_domain:  "yourdomain.com"
+mailgun_api_url: "https://api.eu.mailgun.net/v3"
+
+recipients:
+  - email: "you@yourdomain.com"
+    format: "html"
+EOF
+
+cp -r configs/example configs/$(hostname)
+```
+
+### Smoke test
 
 ```bash
 cd /opt/server-report
@@ -113,20 +238,12 @@ python3 main.py --dry-run
 ```
 
 **Expected output:**
+- No Python tracebacks
+- All 7 core collectors present: System, CPU, Disk, Memory, Network, Security, Services
+- No `[ERROR]` lines
+- `_system` shows correct distro and package manager
 
-- Report printed to stdout with no Python tracebacks
-- `_system` block shows `distro: ubuntu` (or `debian`) and `package_manager: apt`
-- All core collectors present: CPU, Disk, Memory, Network, Security, Services
-- Optional plugins absent if not installed: Restic, Docker, Nginx shown as skipped or absent
-- No `[ERROR]` lines unless a collector genuinely fails
-
----
-
-## 5. Collector checklist
-
-Run these checks individually to verify each collector works correctly.
-
-### System detection
+### System detection check
 
 ```bash
 python3 - << 'EOF'
@@ -140,209 +257,34 @@ Expected on Ubuntu: `{'distro': 'ubuntu', 'distro_version': '24.04', 'distro_pre
 
 Expected on Debian: `{'distro': 'debian', 'distro_version': '12', 'distro_pretty': 'Debian GNU/Linux 12 (bookworm)', 'package_manager': 'apt'}`
 
-Expected on Rocky Linux: `{'distro': 'rocky', 'distro_version': '9', 'distro_pretty': 'Rocky Linux 9.x (Blue Onyx)', 'package_manager': 'dnf'}`
+Expected on Rocky Linux: `{'distro': 'rocky', 'distro_version': '9.x', 'distro_pretty': 'Rocky Linux 9.x (Blue Onyx)', 'package_manager': 'dnf'}`
 
-### CPU
+### Cron setup test
 
 ```bash
-python3 - << 'EOF'
-from loader import load_config
-from resources.core.cpu import CpuCollector
-cfg = load_config()
-c = CpuCollector(cfg.get("cpu", {}))
-print(c.is_available())
-print(c.collect())
-EOF
+# Install
+bash scripts/install-cron.sh
+sudo crontab -l
+# Expected: line containing main.py with the correct schedule
+
+# Remove
+bash scripts/remove-cron.sh
+sudo crontab -l
+# Expected: no line referencing main.py
+
+# Verify no duplicates
+bash scripts/install-cron.sh
+bash scripts/install-cron.sh
+sudo crontab -l | grep -c "main.py"
+# Expected: 1
 ```
 
-### Memory
+### End-to-end email test
 
 ```bash
-python3 - << 'EOF'
-from loader import load_config
-from resources.core.memory import MemoryCollector
-cfg = load_config()
-c = MemoryCollector(cfg.get("memory", {}))
-print(c.collect())
-EOF
-```
-
-### Disk
-
-```bash
-python3 - << 'EOF'
-from loader import load_config
-from resources.core.disk import DiskCollector
-cfg = load_config()
-c = DiskCollector(cfg.get("disk", {}))
-r = c.collect()
-print(r.status, r.metrics)
-EOF
-```
-
-**Watch for:** mount points with spaces, tmpfs partitions incorrectly included,
-percentage parsing errors.
-
-### Network
-
-```bash
-# Verify ss is available
-which ss
-
-python3 - << 'EOF'
-from loader import load_config
-from resources.core.network import NetworkCollector
-cfg = load_config()
-c = NetworkCollector(cfg.get("network", {}))
-print(c.collect())
-EOF
-```
-
-**Watch for:** `ss` missing on minimal systems. Install with `sudo apt install iproute2`.
-
-### Security
-
-```bash
-python3 - << 'PYEOF'
-from loader import load_config
-from resources.core.security import SecurityCollector
-cfg = load_config()
-c = SecurityCollector(cfg.get("security", {}))
-r = c.collect()
-print(r.status, r.metrics)
-PYEOF
-```
-
-**Watch for:**
-- `recent_logins` must be a list with no empty entries and no `wtmp begins` line
-- `failed_ssh_attempts` must be an integer
-
-### Services
-
-```bash
-# Verify systemctl is available
-systemctl --failed --no-legend --plain
-
-python3 - << 'EOF'
-from loader import load_config
-from resources.core.services import ServicesCollector
-cfg = load_config()
-c = ServicesCollector(cfg.get("services", {}))
-r = c.collect()
-print(r.status, r.metrics)
-EOF
-```
-
-**Watch for:**
-- `available_updates` must be an integer, not `-1` (which means unknown package manager)
-- `_system.package_manager` must be `apt` on Ubuntu/Debian, `dnf` on Rocky Linux
-- On Rocky Linux, `dnf check-update` exits with code 100 when updates are available - this is expected and handled correctly
-
-### Plugins (optional, install first)
-
-**Restic:**
-
-```bash
-# Install restic
-sudo apt install -y restic
-
-python3 - << 'EOF'
-from loader import load_config
-from resources.plugins.restic import ResticCollector
-cfg = load_config()
-c = ResticCollector(cfg.get("restic", {}))
-print(c.is_available())   # must be True
-print(c.collect())
-EOF
-```
-
-**Docker:**
-
-```bash
-# Install docker
-sudo apt install -y docker.io
-
-python3 - << 'EOF'
-from loader import load_config
-from resources.plugins.docker import DockerCollector
-cfg = load_config()
-c = DockerCollector(cfg.get("docker", {}))
-print(c.is_available())
-print(c.collect())
-EOF
-```
-
-**Nginx:**
-
-```bash
-sudo apt install -y nginx
-sudo systemctl start nginx
-
-python3 - << 'EOF'
-from loader import load_config
-from resources.plugins.nginx import NginxCollector
-cfg = load_config()
-c = NginxCollector(cfg.get("nginx", {}))
-print(c.is_available())
-print(c.collect())
-EOF
-```
-
----
-
-## 6. Formatter checklist
-
-Verify each formatter produces valid output.
-
-```bash
-python3 - << 'EOF'
-import os
-from dotenv import load_dotenv
-load_dotenv("/opt/server-report/.env", override=True)
-
-import socket
-from datetime import datetime
-from loader import load_config, discover_collectors, run_collectors
-from formatters.text import TextFormatter
-from formatters.html import HtmlFormatter
-from formatters.json import JsonFormatter
-from formatters.csv import CsvFormatter
-
-cfg        = load_config()
-collectors, warnings = discover_collectors(cfg)
-results    = run_collectors(collectors, cfg)
-hostname   = os.environ.get("SERVER_ID") or socket.gethostname()
-timestamp  = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-version    = open("VERSION").read().strip()
-
-for fmt_cls in (TextFormatter, HtmlFormatter, JsonFormatter, CsvFormatter):
-    fmt = fmt_cls()
-    out = fmt.render(results, hostname, timestamp, version)
-    print(f"\n--- {fmt_cls.__name__} ({len(out)} chars) ---")
-    print(out[:500])
-EOF
-```
-
-**Expected:**
-- `TextFormatter`: readable plain text, no Python objects printed raw
-- `HtmlFormatter`: valid HTML starting with `<`, no tracebacks
-- `JsonFormatter`: valid JSON, parseable with `json.loads()`
-- `CsvFormatter`: fixed columns `timestamp,server,version,resource,status,alerts`, no metric detail
-
----
-
-## 7. End-to-end test with real email
-
-Only run this when Mailgun is configured and you want to verify the full flow.
-
-```bash
-# Set real credentials in .env
 echo "MAILGUN_API_KEY=key-your-real-key" >> /opt/server-report/.env
-
-# Activate the virtualenv
 source /opt/server-report/.venv/bin/activate
 
-# Send to a single address to avoid spamming all recipients
 python3 main.py --to your@email.com --format html
 python3 main.py --to your@email.com --format text
 python3 main.py --to your@email.com --format csv
@@ -351,102 +293,39 @@ python3 main.py --to your@email.com --format json
 
 **Check in the inbox:**
 - `html`: report rendered directly in the email body
-- `text`: plain text body, readable without any rendering
-- `csv`: attachment named `server-report-<timestamp>.csv`, opens in Excel
-- `json`: attachment named `server-report-<timestamp>.json`, valid JSON
+- `text`: plain text body
+- `csv`: attachment `.csv`, opens in Excel
+- `json`: attachment `.json`, valid JSON
 
----
-
-## 8. Red Hat / CentOS compatibility test
-
-To verify multi-distro support, create a second VM with Rocky Linux or AlmaLinux.
+### Cleanup
 
 ```bash
-# Use e2-medium for Rocky Linux - e2-micro is too slow for dnf provisioning
-gcloud compute instances create server-report-test-rhel \
+gcloud compute instances delete server-report-test \
   --zone=europe-west8-a \
-  --machine-type=e2-medium \
-  --image-family=rocky-linux-9 \
-  --image-project=rocky-linux-cloud \
-  --boot-disk-size=10GB
-
-gcloud compute ssh server-report-test-rhel --zone=europe-west8-a
-```
-
-**Rocky Linux provisioning differs from Debian/Ubuntu:**
-
-```bash
-# Rocky Linux 9 ships with Python 3.9 which is below the 3.10+ requirement.
-# Install Python 3.11 explicitly.
-sudo dnf install -y python3.11 python3.11-pip git
-
-# Clone the repository
-git clone https://github.com/biofer76/server-report /opt/server-report
-cd /opt/server-report
-
-# Create and activate the virtualenv using python3.11
-python3.11 -m venv /opt/server-report/.venv
-source /opt/server-report/.venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Create .env
-cat > /opt/server-report/.env << 'EOF'
-MAILGUN_API_KEY=key-test-placeholder
-SERVER_ID=server-report-test
-EOF
-
-# Copy example config
-cp -r configs/example configs/server-report-test
-```
-
-Run the same smoke test and collector checklist. Pay attention to:
-
-- `_system.package_manager` must be `dnf`
-- `_system` block shows `distro: rocky` and `distro_version: 9`
-- `services` collector must use `dnf check-update` for available updates
-- `available_updates` must be an integer, not `-1`
-- `dnf check-update` exits with code 100 when updates are available (this is normal)
-
----
-
-## 9. Cleanup
-
-Delete the test VM when done to avoid unnecessary GCP costs.
-
-```bash
-gcloud compute instances delete server-report-test --zone=europe-west8-a --quiet
-```
-
-If you created the Red Hat VM:
-
-```bash
-gcloud compute instances delete server-report-test-rhel --zone=europe-west8-a --quiet
-# or if named differently:
-gcloud compute instances delete server-report-test-rhel2 --zone=europe-west8-a --quiet
+  --project=PROJECT-ID \
+  --quiet
 ```
 
 ---
 
-## 10. Checklist before every release
+## 6. Release checklist
 
 Run through this list before tagging a new version.
 
-- [ ] `python3 main.py --dry-run` completes without errors on Ubuntu
-- [ ] `python3 main.py --dry-run` completes without errors on Debian
-- [ ] `python3 main.py --dry-run` completes without errors on Rocky Linux
-- [ ] `_system` block is correct on all three distros
-- [ ] `available_updates` is an integer on all three distros (not `-1`)
-- [ ] `available_updates` uses `apt` on Ubuntu/Debian and `dnf` on Rocky Linux
-- [ ] All four formatters produce valid output
-- [ ] CSV has fixed columns, no metric detail
-- [ ] JSON is parseable with `json.loads()`
-- [ ] HTML has no raw Python objects
+**Unit tests**
+- [ ] `pytest tests/ -v` passes with 0 failures
+
+**Integration tests**
+- [ ] `run-tests.sh ubuntu` passes with 0 failures
+- [ ] `run-tests.sh debian` passes with 0 failures
+- [ ] `run-tests.sh rocky` passes with 0 failures
+
+**Manual verification**
 - [ ] End-to-end email test passed for all four formats
+- [ ] Log at `/var/log/server-report.log` shows structured `send OK` lines only
+
+**Code quality**
 - [ ] No hardcoded credentials, paths, or thresholds in the code
 - [ ] `VERSION` file updated
 - [ ] `requirements.txt` versions are still pinned and current
-- [ ] Cron entry set and verified with a one-minute test schedule
-- [ ] Log at /var/log/server-report.log shows structured send OK lines only
-- [ ] Test VM deleted after testing
+- [ ] All GCP test VMs deleted
