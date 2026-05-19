@@ -85,22 +85,29 @@ class ServicesCollector(BaseCollector):
 
         elif pkg_manager == "dnf":
             # dnf check-update exits 100 when updates are available, 0 when none, 1 on error.
-            # The _run() helper discards the exit code, so call subprocess directly.
+            # --cacheonly reads the local metadata cache without hitting the network.
+            # Exit code 1 with --cacheonly means the cache is empty, not an error.
             result = subprocess.run(
-                ["dnf", "check-update", "--quiet"],
+                ["dnf", "check-update", "--quiet", "--cacheonly"],
                 capture_output=True, text=True, timeout=30,
             )
-            if result.returncode in (0, 100):
-                count = 0
-                for line in result.stdout.splitlines():
-                    if not line.strip():
-                        continue
-                    if line.startswith("Obsoleting"):
-                        break
-                    first_word = line.split()[0] if line.split() else ""
-                    if "." in first_word:
-                        count += 1
-                return count
-            return -1
+            if result.returncode == 1:
+                # Cache empty: fall back to a full network check.
+                result = subprocess.run(
+                    ["dnf", "check-update", "--quiet"],
+                    capture_output=True, text=True, timeout=30,
+                )
+            if result.returncode not in (0, 100):
+                return -1
+            count = 0
+            for line in result.stdout.splitlines():
+                if not line.strip():
+                    continue
+                if line.startswith("Obsoleting"):
+                    break
+                first_word = line.split()[0] if line.split() else ""
+                if "." in first_word:
+                    count += 1
+            return count
 
         return -1
