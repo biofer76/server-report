@@ -1,0 +1,6 @@
+USER         PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+root         705 17.1  4.2 1924128 41412 ?       Ssl  13:35   0:02 /snap/snapd/current/usr/lib/snapd/snapd
+root           1  8.7  1.4  22764 14080 ?        Ss   13:35   0:02 /sbin/init
+fabio       1401  8.4  1.1  20336 11548 ?        Ss   13:35   0:00 /usr/lib/systemd/systemd --user
+root        1543  3.8  1.0  14748 10544 ?        Ss   13:35   0:00 sshd: fabio [priv]
+root         711  2.0  3.0  44888 30124 ?        Ss   13:35   0:00 /usr/bin/python3 /usr/lib/ubuntu-advantage/daemon.py

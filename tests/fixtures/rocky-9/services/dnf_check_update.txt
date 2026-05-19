@@ -1,0 +1,56 @@
+
+glib2.x86_64                      2.68.4-18.el9_7.2            baseos               
+google-cloud-cli.x86_64           569.0.0-1                    google-cloud-sdk     
+google-cloud-cli-anthoscli.x86_64 569.0.0-1                    google-cloud-sdk     
+google-guest-agent.x86_64         1:20260511.00-g1.el9         google-compute-engine
+google-osconfig-agent.x86_64      1:20260427.03-g1.el9         google-compute-engine
+grub2-common.noarch               1:2.06-114.el9_7.2.rocky.0.2 baseos               
+grub2-efi-x64.x86_64              1:2.06-114.el9_7.2.rocky.0.2 baseos               
+grub2-tools.x86_64                1:2.06-114.el9_7.2.rocky.0.2 baseos               
+grub2-tools-minimal.x86_64        1:2.06-114.el9_7.2.rocky.0.2 baseos               
+iwl105-firmware.noarch            18.168.6.1-155.5.el9_7       baseos               
+iwl135-firmware.noarch            18.168.6.1-155.5.el9_7       baseos               
+iwl2000-firmware.noarch           18.168.6.1-155.5.el9_7       baseos               
+iwl2030-firmware.noarch           18.168.6.1-155.5.el9_7       baseos               
+iwl3160-firmware.noarch           1:25.30.13.0-155.5.el9_7     baseos               
+iwl7260-firmware.noarch           1:25.30.13.0-155.5.el9_7     baseos               
+jq.x86_64                         1.6-19.el9_7.0.2             baseos               
+kernel.x86_64                     5.14.0-611.55.1.el9_7        baseos               
+kernel-core.x86_64                5.14.0-611.55.1.el9_7        baseos               
+kernel-modules.x86_64             5.14.0-611.55.1.el9_7        baseos               
+kernel-modules-core.x86_64        5.14.0-611.55.1.el9_7        baseos               
+kernel-tools.x86_64               5.14.0-611.55.1.el9_7        baseos               
+kernel-tools-libs.x86_64          5.14.0-611.55.1.el9_7        baseos               
+krb5-libs.x86_64                  1.21.1-9.el9_7               baseos               
+libcap.x86_64                     2.48-10.el9_7.1              baseos               
+libldb.x86_64                     4.22.4-20.el9_7              baseos               
+linux-firmware.noarch             20260411-155.5.el9_7         baseos               
+linux-firmware-whence.noarch      20260411-155.5.el9_7         baseos               
+openssh.x86_64                    8.7p1-49.el9_7.rocky.0.1     baseos               
+openssh-clients.x86_64            8.7p1-49.el9_7.rocky.0.1     baseos               
+openssh-server.x86_64             8.7p1-49.el9_7.rocky.0.1     baseos               
+python-unversioned-command.noarch 3.9.25-3.el9_7.3             appstream            
+python3.x86_64                    3.9.25-3.el9_7.3             baseos               
+python3-libs.x86_64               3.9.25-3.el9_7.3             baseos               
+rocky-gpg-keys.noarch             9.7-1.7.el9                  baseos               
+rocky-release.noarch              9.7-1.7.el9                  baseos               
+rocky-repos.noarch                9.7-1.7.el9                  baseos               
+sudo.x86_64                       1.9.5p2-15.el9_7             baseos               
+systemd.x86_64                    252-55.el9_7.9.rocky.0.1     baseos               
+systemd-libs.x86_64               252-55.el9_7.9.rocky.0.1     baseos               
+systemd-pam.x86_64                252-55.el9_7.9.rocky.0.1     baseos               
+systemd-rpm-macros.noarch         252-55.el9_7.9.rocky.0.1     baseos               
+systemd-udev.x86_64               252-55.el9_7.9.rocky.0.1     baseos               
+vim-common.x86_64                 2:8.2.2637-23.el9_7.3        appstream            
+vim-enhanced.x86_64               2:8.2.2637-23.el9_7.3        appstream            
+vim-filesystem.noarch             2:8.2.2637-23.el9_7.3        baseos               
+vim-minimal.x86_64                2:8.2.2637-23.el9_7.3        baseos               
+Obsoleting Packages
+grub2-tools.x86_64                1:2.06-114.el9_7.2.rocky.0.2 baseos               
+    grub2-tools.x86_64            1:2.06-114.el9_7.1.rocky.0.2 @anaconda            
+grub2-tools-efi.x86_64            1:2.06-114.el9_7.2.rocky.0.2 baseos               
+    grub2-tools.x86_64            1:2.06-114.el9_7.1.rocky.0.2 @anaconda            
+grub2-tools-extra.x86_64          1:2.06-114.el9_7.2.rocky.0.2 baseos               
+    grub2-tools.x86_64            1:2.06-114.el9_7.1.rocky.0.2 @anaconda            
+grub2-tools-minimal.x86_64        1:2.06-114.el9_7.2.rocky.0.2 baseos               
+    grub2-tools.x86_64            1:2.06-114.el9_7.1.rocky.0.2 @anaconda            

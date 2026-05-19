@@ -1,0 +1,3 @@
+reboot   system boot  6.1.0-47-cloud-a 2026-05-19T13:37:47+00:00   still running
+
+wtmp begins 2026-05-19T13:37:47+00:00

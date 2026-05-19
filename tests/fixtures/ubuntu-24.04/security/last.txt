@@ -1,0 +1,3 @@
+reboot   system boot  6.17.0-1016-gcp  2026-05-19T13:35:08+00:00   still running
+
+wtmp begins 2026-05-19T13:35:08+00:00

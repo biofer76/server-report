@@ -1,0 +1,8 @@
+Mounted on                 Size  Used Avail Use%
+/dev                       4.0M     0  4.0M   0%
+/dev/shm                   1.8G     0  1.8G   0%
+/run                       731M  8.5M  723M   2%
+/sys/firmware/efi/efivars  256K   26K  226K  11%
+/                           20G  3.3G   17G  17%
+/boot/efi                  200M  7.1M  193M   4%
+/run/user/1002             366M     0  366M   0%

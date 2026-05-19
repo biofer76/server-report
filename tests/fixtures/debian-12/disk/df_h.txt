@@ -1,0 +1,8 @@
+Mounted on      Size  Used Avail Use%
+/dev            447M     0  447M   0%
+/run             97M  480K   97M   1%
+/               9.7G  2.2G  7.1G  24%
+/dev/shm        485M     0  485M   0%
+/run/lock       5.0M     0  5.0M   0%
+/boot/efi       124M   12M  113M  10%
+/run/user/1000   97M     0   97M   0%

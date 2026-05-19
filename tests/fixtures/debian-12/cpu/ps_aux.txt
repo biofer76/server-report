@@ -1,0 +1,6 @@
+USER         PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+root           1  5.8  1.2 102292 12176 ?        Ss   13:37   0:01 /sbin/init
+root        1048  4.1  1.0  17696 10656 ?        Ss   13:38   0:00 sshd: fabio [priv]
+root         688  4.0  2.7 1279300 27748 ?       Sl   13:37   0:00 /usr/lib/google/guest_agent/GuestAgentCorePlugin/core_plugin --protocol=unix --address=/run/google-guest-agent/plugin-connections/GuestAgentCorePlugin_20260423.01.sock --errorlogfile=/var/lib/google-guest-agent/5092366885641640312/agent_state/plugins/GuestAgentCorePlugin/plugin.log
+Debian-+     657  2.9  1.8  30064 17952 ?        Ss   13:37   0:00 /usr/sbin/exim4 -bd -q30m
+fabio       1026  2.6  1.0  18784 10056 ?        Ss   13:38   0:00 /lib/systemd/systemd --user
