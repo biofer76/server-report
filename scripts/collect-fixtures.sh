@@ -21,6 +21,8 @@
 
 set -euo pipefail
 
+source "$(dirname "$0")/gcp-vm.sh"
+
 # -----------------------------------------------------------------------------
 # Arguments
 # -----------------------------------------------------------------------------
@@ -29,54 +31,19 @@ DISTRO="${1:-ubuntu}"
 PROJECT="${2:-$(gcloud config get project 2>/dev/null)}"
 ZONE="${3:-europe-west8-a}"
 
-if [[ -z "$PROJECT" ]]; then
-    echo "[ERROR] No GCP project specified and no default project set."
-    echo "        Run: gcloud config set project YOUR_PROJECT_ID"
-    exit 1
-fi
+gcp_require_project "$PROJECT"
+gcp_load_distro_config "$DISTRO"
 
 # -----------------------------------------------------------------------------
-# Distro configuration
+# Paths
 # -----------------------------------------------------------------------------
-
-case "$DISTRO" in
-    ubuntu)
-        IMAGE_FAMILY="ubuntu-2404-lts-amd64"
-        IMAGE_PROJECT="ubuntu-os-cloud"
-        MACHINE_TYPE="e2-micro"
-        DISK_SIZE="10GB"
-        FIXTURE_DISTRO="ubuntu-24.04"
-        PYTHON_SETUP="sudo apt-get update -qq && sudo apt-get install -y -qq python3.12-venv"
-        VENV_CMD="python3 -m venv /tmp/venv"
-        ;;
-    debian)
-        IMAGE_FAMILY="debian-12"
-        IMAGE_PROJECT="debian-cloud"
-        MACHINE_TYPE="e2-micro"
-        DISK_SIZE="10GB"
-        FIXTURE_DISTRO="debian-12"
-        PYTHON_SETUP="sudo apt-get update -qq && sudo apt-get install -y -qq python3.11-venv"
-        VENV_CMD="python3 -m venv /tmp/venv"
-        ;;
-    rocky)
-        IMAGE_FAMILY="rocky-linux-9"
-        IMAGE_PROJECT="rocky-linux-cloud"
-        MACHINE_TYPE="e2-medium"
-        DISK_SIZE="20GB"
-        FIXTURE_DISTRO="rocky-9"
-        PYTHON_SETUP="sudo dnf install -y -q python3.11"
-        VENV_CMD="python3.11 -m venv /tmp/venv"
-        ;;
-    *)
-        echo "[ERROR] Unknown distro: $DISTRO. Use: ubuntu | debian | rocky"
-        exit 1
-        ;;
-esac
 
 VM_NAME="server-report-fixture-collector"
+REPO_URL="https://github.com/biofer76/server-report"
+INSTALL_PATH="/opt/server-report"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-LOCAL_FIXTURES="$PROJECT_DIR/tests/fixtures/$FIXTURE_DISTRO"
+LOCAL_FIXTURES="$PROJECT_DIR/tests/fixtures/$GCP_FIXTURE_DISTRO"
 
 # -----------------------------------------------------------------------------
 # Cleanup on exit
@@ -84,12 +51,7 @@ LOCAL_FIXTURES="$PROJECT_DIR/tests/fixtures/$FIXTURE_DISTRO"
 
 cleanup() {
     echo ""
-    echo "[INFO] Cleaning up VM..."
-    gcloud compute instances delete "$VM_NAME" \
-        --zone="$ZONE" \
-        --project="$PROJECT" \
-        --quiet 2>/dev/null || true
-    echo "[OK] VM deleted"
+    gcp_delete_vm "$VM_NAME" "$PROJECT" "$ZONE"
 }
 trap cleanup EXIT
 
@@ -97,36 +59,17 @@ trap cleanup EXIT
 # Create VM
 # -----------------------------------------------------------------------------
 
-echo "[INFO] Creating VM: $VM_NAME ($DISTRO, $MACHINE_TYPE)"
+echo "[INFO] Creating VM: $VM_NAME ($DISTRO)"
 echo "[INFO] Project: $PROJECT | Zone: $ZONE"
 
-gcloud compute instances create "$VM_NAME" \
-    --zone="$ZONE" \
-    --project="$PROJECT" \
-    --machine-type="$MACHINE_TYPE" \
-    --image-family="$IMAGE_FAMILY" \
-    --image-project="$IMAGE_PROJECT" \
-    --boot-disk-size="$DISK_SIZE" \
-    --quiet
+gcp_create_vm "$VM_NAME" "$PROJECT" "$ZONE"
+gcp_wait_for_ssh "$VM_NAME" "$PROJECT" "$ZONE"
 
-echo "[INFO] Waiting for VM to be ready..."
-MAX_WAIT=120
-WAITED=0
-until gcloud compute ssh "$VM_NAME" \
-    --zone="$ZONE" \
-    --project="$PROJECT" \
-    --command="echo ready" \
-    --strict-host-key-checking=no \
-    --quiet 2>/dev/null; do
-    if [[ $WAITED -ge $MAX_WAIT ]]; then
-        echo "[ERROR] VM not reachable after ${MAX_WAIT}s"
-        exit 1
-    fi
-    echo "[INFO] Waiting for SSH... (${WAITED}s)"
-    sleep 10
-    WAITED=$((WAITED + 10))
-done
-echo "[OK] VM is ready"  
+# -----------------------------------------------------------------------------
+# Provision
+# -----------------------------------------------------------------------------
+
+gcp_provision_server_report "$VM_NAME" "$PROJECT" "$ZONE" "$REPO_URL" "$INSTALL_PATH"
 
 # -----------------------------------------------------------------------------
 # Remote script to collect fixture outputs
@@ -208,12 +151,7 @@ REMOTE_EOF
 # -----------------------------------------------------------------------------
 
 echo "[INFO] Running collection script on VM..."
-gcloud compute ssh "$VM_NAME" \
-    --zone="$ZONE" \
-    --project="$PROJECT" \
-    --command="$REMOTE_SCRIPT" \
-    --tunnel-through-iap \
-    --strict-host-key-checking=no
+gcp_ssh "$VM_NAME" "$PROJECT" "$ZONE" "$REMOTE_SCRIPT"
 
 # -----------------------------------------------------------------------------
 # Download fixtures
@@ -222,13 +160,7 @@ gcloud compute ssh "$VM_NAME" \
 echo "[INFO] Downloading fixtures to $LOCAL_FIXTURES..."
 mkdir -p "$LOCAL_FIXTURES"
 
-gcloud compute scp \
-    --recurse \
-    --zone="$ZONE" \
-    --project="$PROJECT" \
-    --tunnel-through-iap \
-    "$VM_NAME:/tmp/fixtures/." \
-    "$LOCAL_FIXTURES/"
+gcp_scp_from "$VM_NAME" "$PROJECT" "$ZONE" "/tmp/fixtures/." "$LOCAL_FIXTURES/"
 
 echo ""
 echo "[OK] Fixtures downloaded to: $LOCAL_FIXTURES"

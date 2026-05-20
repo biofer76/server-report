@@ -25,6 +25,8 @@
 
 set -euo pipefail
 
+source "$(dirname "$0")/gcp-vm.sh"
+
 # -----------------------------------------------------------------------------
 # Arguments
 # -----------------------------------------------------------------------------
@@ -33,59 +35,14 @@ DISTRO="${1:-ubuntu}"
 PROJECT="${2:-$(gcloud config get project 2>/dev/null)}"
 ZONE="${3:-europe-west8-a}"
 
-if [[ -z "$PROJECT" ]]; then
-    echo "[ERROR] No GCP project specified and no default project set."
-    echo "        Run: gcloud config set project YOUR_PROJECT_ID"
-    exit 1
-fi
+gcp_require_project "$PROJECT"
+gcp_load_distro_config "$DISTRO"
 
 # -----------------------------------------------------------------------------
-# Distro configuration
+# Constants
 # -----------------------------------------------------------------------------
-
-case "$DISTRO" in
-    ubuntu)
-        IMAGE_FAMILY="ubuntu-2404-lts-amd64"
-        IMAGE_PROJECT="ubuntu-os-cloud"
-        MACHINE_TYPE="e2-micro"
-        DISK_SIZE="10GB"
-        FIXTURE_DISTRO="ubuntu-24.04"
-        EXPECTED_DISTRO="ubuntu"
-        EXPECTED_PKG_MANAGER="apt"
-        PROVISION_CMD="sudo apt-get update -qq && sudo apt-get install -y -qq git python3-pip python3.12-venv"
-        VENV_PYTHON="python3"
-        ;;
-    debian)
-        IMAGE_FAMILY="debian-12"
-        IMAGE_PROJECT="debian-cloud"
-        MACHINE_TYPE="e2-micro"
-        DISK_SIZE="10GB"
-        FIXTURE_DISTRO="debian-12"
-        EXPECTED_DISTRO="debian"
-        EXPECTED_PKG_MANAGER="apt"
-        PROVISION_CMD="sudo apt-get update -qq && sudo apt-get install -y -qq git python3-pip python3.11-venv"
-        VENV_PYTHON="python3"
-        ;;
-    rocky)
-        IMAGE_FAMILY="rocky-linux-9"
-        IMAGE_PROJECT="rocky-linux-cloud"
-        MACHINE_TYPE="e2-medium"
-        DISK_SIZE="20GB"
-        FIXTURE_DISTRO="rocky-9"
-        EXPECTED_DISTRO="rocky"
-        EXPECTED_PKG_MANAGER="dnf"
-        PROVISION_CMD="sudo dnf install -y -q git python3.11"
-        VENV_PYTHON="python3.11"
-        ;;
-    *)
-        echo "[ERROR] Unknown distro: $DISTRO. Use: ubuntu | debian | rocky"
-        exit 1
-        ;;
-esac
 
 VM_NAME="server-report-test-runner"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 REPO_URL="https://github.com/biofer76/server-report"
 INSTALL_PATH="/opt/server-report"
 PASS=0
@@ -105,31 +62,13 @@ fail() {
     FAIL=$((FAIL + 1))
 }
 
-ssh_run() {
-    gcloud compute ssh "$VM_NAME" \
-        --zone="$ZONE" \
-        --project="$PROJECT" \
-        --command="$1" \
-        --strict-host-key-checking=no \
-        --quiet 2>/dev/null
-}
-
-ssh_run_sudo() {
-    ssh_run "sudo bash -c '$1'"
-}
-
 # -----------------------------------------------------------------------------
 # Cleanup on exit
 # -----------------------------------------------------------------------------
 
 cleanup() {
     echo ""
-    echo "[INFO] Cleaning up VM..."
-    gcloud compute instances delete "$VM_NAME" \
-        --zone="$ZONE" \
-        --project="$PROJECT" \
-        --quiet 2>/dev/null || true
-    echo "[OK] VM deleted"
+    gcp_delete_vm "$VM_NAME" "$PROJECT" "$ZONE"
 
     echo ""
     echo "============================================================"
@@ -156,59 +95,15 @@ echo "  Project: $PROJECT"
 echo "  Zone:    $ZONE"
 echo "============================================================"
 echo ""
-echo "[INFO] Creating VM: $VM_NAME"
 
-gcloud compute instances create "$VM_NAME" \
-    --zone="$ZONE" \
-    --project="$PROJECT" \
-    --machine-type="$MACHINE_TYPE" \
-    --image-family="$IMAGE_FAMILY" \
-    --image-project="$IMAGE_PROJECT" \
-    --boot-disk-size="$DISK_SIZE" \
-    --quiet
-
-# Wait for SSH
-echo "[INFO] Waiting for SSH..."
-MAX_WAIT=120
-WAITED=0
-until ssh_run "echo ready" &>/dev/null; do
-    if [[ $WAITED -ge $MAX_WAIT ]]; then
-        echo "[ERROR] VM not reachable after ${MAX_WAIT}s"
-        exit 1
-    fi
-    sleep 10
-    WAITED=$((WAITED + 10))
-done
-echo "[OK] VM is ready"
+gcp_create_vm "$VM_NAME" "$PROJECT" "$ZONE"
+gcp_wait_for_ssh "$VM_NAME" "$PROJECT" "$ZONE"
 
 # -----------------------------------------------------------------------------
 # Provisioning
 # -----------------------------------------------------------------------------
 
-echo ""
-echo "[INFO] Provisioning..."
-
-ssh_run "$PROVISION_CMD"
-ssh_run "sudo git clone $REPO_URL $INSTALL_PATH"
-ssh_run "sudo chown -R \$USER:\$USER $INSTALL_PATH"
-ssh_run "cd $INSTALL_PATH && $VENV_PYTHON -m venv .venv && .venv/bin/pip install -q -r requirements.txt"
-
-# Minimal config
-ssh_run "cat > $INSTALL_PATH/.env << 'EOF'
-MAILGUN_API_KEY=key-test-placeholder
-EOF"
-
-ssh_run "mkdir -p $INSTALL_PATH/configs/shared && cat > $INSTALL_PATH/configs/shared/general.yaml << 'EOF'
-mailgun_domain: \"mg.example.com\"
-mailgun_api_url: \"https://api.eu.mailgun.net/v3\"
-recipients:
-  - email: \"test@example.com\"
-    format: \"html\"
-EOF"
-
-ssh_run "cp -r $INSTALL_PATH/configs/example $INSTALL_PATH/configs/\$(hostname)"
-
-echo "[OK] Provisioning complete"
+gcp_provision_server_report "$VM_NAME" "$PROJECT" "$ZONE" "$REPO_URL" "$INSTALL_PATH"
 
 # -----------------------------------------------------------------------------
 # 1. System detection
@@ -217,25 +112,25 @@ echo "[OK] Provisioning complete"
 echo ""
 echo "[INFO] Checking system detection..."
 
-DETECTED_DISTRO=$(ssh_run "cd $INSTALL_PATH && .venv/bin/python - << 'PYEOF'
+DETECTED_DISTRO=$(gcp_ssh "$VM_NAME" "$PROJECT" "$ZONE" "cd $INSTALL_PATH && .venv/bin/python - << 'PYEOF'
 from loader import load_config
 cfg = load_config()
 print(cfg.get('_system', {}).get('distro', 'unknown'))
 PYEOF")
 
-DETECTED_PKG=$(ssh_run "cd $INSTALL_PATH && .venv/bin/python - << 'PYEOF'
+DETECTED_PKG=$(gcp_ssh "$VM_NAME" "$PROJECT" "$ZONE" "cd $INSTALL_PATH && .venv/bin/python - << 'PYEOF'
 from loader import load_config
 cfg = load_config()
 print(cfg.get('_system', {}).get('package_manager', 'unknown'))
 PYEOF")
 
-[[ "$DETECTED_DISTRO" == "$EXPECTED_DISTRO" ]] \
+[[ "$DETECTED_DISTRO" == "$GCP_EXPECTED_DISTRO" ]] \
     && pass "_system.distro = $DETECTED_DISTRO" \
-    || fail "_system.distro expected=$EXPECTED_DISTRO got=$DETECTED_DISTRO"
+    || fail "_system.distro expected=$GCP_EXPECTED_DISTRO got=$DETECTED_DISTRO"
 
-[[ "$DETECTED_PKG" == "$EXPECTED_PKG_MANAGER" ]] \
+[[ "$DETECTED_PKG" == "$GCP_EXPECTED_PKG" ]] \
     && pass "_system.package_manager = $DETECTED_PKG" \
-    || fail "_system.package_manager expected=$EXPECTED_PKG_MANAGER got=$DETECTED_PKG"
+    || fail "_system.package_manager expected=$GCP_EXPECTED_PKG got=$DETECTED_PKG"
 
 # -----------------------------------------------------------------------------
 # 2. Dry-run
@@ -244,7 +139,7 @@ PYEOF")
 echo ""
 echo "[INFO] Running dry-run..."
 
-DRY_RUN_OUTPUT=$(ssh_run "cd $INSTALL_PATH && .venv/bin/python main.py --dry-run 2>&1")
+DRY_RUN_OUTPUT=$(gcp_ssh "$VM_NAME" "$PROJECT" "$ZONE" "cd $INSTALL_PATH && .venv/bin/python main.py --dry-run 2>&1")
 
 echo "$DRY_RUN_OUTPUT" | grep -q "SERVER REPORT" \
     && pass "dry-run produces report" \
@@ -278,7 +173,7 @@ done
 echo ""
 echo "[INFO] Checking available_updates..."
 
-UPDATES=$(ssh_run "cd $INSTALL_PATH && .venv/bin/python - << 'PYEOF'
+UPDATES=$(gcp_ssh "$VM_NAME" "$PROJECT" "$ZONE" "cd $INSTALL_PATH && .venv/bin/python - << 'PYEOF'
 from loader import load_config
 from resources.core.services import ServicesCollector
 cfg = load_config()
@@ -298,7 +193,7 @@ PYEOF")
 echo ""
 echo "[INFO] Checking recent_logins..."
 
-LOGINS_OK=$(ssh_run "cd $INSTALL_PATH && .venv/bin/python - << 'PYEOF'
+LOGINS_OK=$(gcp_ssh "$VM_NAME" "$PROJECT" "$ZONE" "cd $INSTALL_PATH && .venv/bin/python - << 'PYEOF'
 from loader import load_config
 from resources.core.security import SecurityCollector
 cfg = load_config()
@@ -321,7 +216,10 @@ PYEOF")
 echo ""
 echo "[INFO] Checking formatters..."
 
-FORMATTER_RESULTS=$(ssh_run "cd $INSTALL_PATH && .venv/bin/python - << 'PYEOF'
+# Write the checker script to a local temp file and scp it to the VM to avoid
+# heredoc escaping issues and Python 3.11 f-string nested-quote restrictions.
+FORMATTER_SCRIPT=$(mktemp)
+cat > "$FORMATTER_SCRIPT" << 'PYEOF'
 import json, socket
 from datetime import datetime
 from loader import load_config, discover_collectors, run_collectors
@@ -352,12 +250,19 @@ try:
 except Exception:
     checks['json_parseable'] = False
 
-csv = CsvFormatter().render(results, hostname, timestamp, version)
-checks['csv_header'] = csv.splitlines()[0] == 'timestamp,server,version,resource,status,alerts'
+csv_out = CsvFormatter().render(results, hostname, timestamp, version)
+checks['csv_header'] = csv_out.splitlines()[0] == 'timestamp,server,version,resource,status,alerts'
 
 for k, v in checks.items():
-    print(f'{k}={'ok' if v else 'fail'}')
-PYEOF")
+    status = 'ok' if v else 'fail'
+    print(f'{k}={status}')
+PYEOF
+
+gcp_scp_to "$VM_NAME" "$PROJECT" "$ZONE" "$FORMATTER_SCRIPT" "/tmp/check_formatters.py"
+rm -f "$FORMATTER_SCRIPT"
+
+FORMATTER_RESULTS=$(gcp_ssh "$VM_NAME" "$PROJECT" "$ZONE" \
+    "cd $INSTALL_PATH && PYTHONPATH=. .venv/bin/python /tmp/check_formatters.py")
 
 while IFS='=' read -r key value || [[ -n "$key" ]]; do
     [[ "$value" == "ok" ]] \
@@ -372,25 +277,25 @@ done <<< "$FORMATTER_RESULTS"
 echo ""
 echo "[INFO] Checking cron scripts..."
 
-ssh_run "cd $INSTALL_PATH && bash scripts/install-cron.sh" &>/dev/null
+gcp_ssh "$VM_NAME" "$PROJECT" "$ZONE" "cd $INSTALL_PATH && bash scripts/install-cron.sh" &>/dev/null
 
-CRONTAB=$(ssh_run_sudo "crontab -l 2>/dev/null || true")
+CRONTAB=$(gcp_ssh_sudo "$VM_NAME" "$PROJECT" "$ZONE" "crontab -l 2>/dev/null || true")
 echo "$CRONTAB" | grep -q "main.py" \
     && pass "install-cron.sh writes cron entry" \
     || fail "install-cron.sh did not write cron entry"
 
-ssh_run "cd $INSTALL_PATH && bash scripts/remove-cron.sh" &>/dev/null
+gcp_ssh "$VM_NAME" "$PROJECT" "$ZONE" "cd $INSTALL_PATH && bash scripts/remove-cron.sh" &>/dev/null
 
-CRONTAB_AFTER=$(ssh_run_sudo "crontab -l 2>/dev/null || true")
+CRONTAB_AFTER=$(gcp_ssh_sudo "$VM_NAME" "$PROJECT" "$ZONE" "crontab -l 2>/dev/null || true")
 echo "$CRONTAB_AFTER" | grep -qv "main.py" \
     && pass "remove-cron.sh removes cron entry" \
     || fail "remove-cron.sh did not remove cron entry"
 
 # Run install-cron.sh twice to verify no duplicate entries
-ssh_run "cd $INSTALL_PATH && bash scripts/install-cron.sh" &>/dev/null
-ssh_run "cd $INSTALL_PATH && bash scripts/install-cron.sh" &>/dev/null
+gcp_ssh "$VM_NAME" "$PROJECT" "$ZONE" "cd $INSTALL_PATH && bash scripts/install-cron.sh" &>/dev/null
+gcp_ssh "$VM_NAME" "$PROJECT" "$ZONE" "cd $INSTALL_PATH && bash scripts/install-cron.sh" &>/dev/null
 
-CRONTAB_DUPES=$(ssh_run_sudo "crontab -l 2>/dev/null | grep -c 'main.py' || true")
+CRONTAB_DUPES=$(gcp_ssh_sudo "$VM_NAME" "$PROJECT" "$ZONE" "crontab -l 2>/dev/null | grep -c 'main.py' || true")
 [[ "$CRONTAB_DUPES" == "1" ]] \
     && pass "install-cron.sh does not create duplicate entries" \
     || fail "install-cron.sh created $CRONTAB_DUPES duplicate entries"
